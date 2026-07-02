@@ -23,7 +23,7 @@
 #   profile consultation. A --secondmate spawn is exempt and resolves the SECONDMATE
 #   harness (config/secondmate-harness -> config/crew-harness -> own), so the
 #   secondmate-vs-crewmate split is DURABLE across every respawn (recovery,
-#   /updatefirstmate, restart). A bare adapter name (claude|codex|opencode|pi|grok)
+#   /updatefirstmate, restart). A bare adapter name (claude|codex|opencode|pi|grok|devin)
 #   overrides it for this spawn (either kind). A non-flag string containing
 #   whitespace is treated as a RAW launch command - the escape hatch for verifying
 #   new adapters.
@@ -194,7 +194,7 @@ FIRSTMATE_HOME=
 
 if [ "$KIND" = secondmate ]; then
   case "${POS[1]:-}" in
-    ''|claude|codex|opencode|pi|grok)
+    ''|claude|codex|opencode|pi|grok|devin)
       ARG3=${POS[1]:-}
       ;;
     *' '*)
@@ -255,6 +255,13 @@ launch_template() {
     # launch command - it is a Stop-event hook installed below (global hook +
     # per-task pointer), so the template is identical for ship/scout/secondmate.
     grok) printf '%s' 'grok --always-approve __MODELFLAG____EFFORTFLAG__"$(cat __BRIEF__)"' ;;
+    # devin: --prompt-file loads the brief non-interactively as the initial
+    # prompt; --permission-mode dangerous auto-approves every tool (the devin
+    # equivalent of claude's --dangerously-skip-permissions). The turn-end
+    # signal rides a Stop hook in .devin/hooks.v1.json (Claude Code hook format,
+    # which devin reads natively), wired below - not via the launch command, so
+    # the same template serves ship, scout, and secondmate spawns.
+    devin) printf '%s' 'devin --prompt-file __BRIEF__ --permission-mode dangerous' ;;
     *) return 1 ;;
   esac
 }
@@ -757,6 +764,17 @@ EOF
       printf '{"hooks":{"Stop":[{"hooks":[{"type":"command","command":"%s"}]}]}}\n' "$hook_command" > "$GROK_HOOKS_DIR/fm-turn-end.json"
       printf 'token=%s\n' "${auth_file##*/}" > "$WT/.fm-grok-turnend"
       exclude_path '.fm-grok-turnend'
+      ;;
+    devin*)
+      # devin reads Claude Code-compatible hooks from .devin/hooks.v1.json, where
+      # the hooks object IS the entire file (no "hooks" wrapper key, unlike
+      # settings files). The Stop event fires at every turn boundary - exactly
+      # the signal the watcher needs to surface an idle crewmate.
+      mkdir -p "$WT/.devin"
+      cat > "$WT/.devin/hooks.v1.json" <<EOF
+{"Stop":[{"hooks":[{"type":"command","command":"touch '$TURNEND'"}]}]}
+EOF
+      exclude_path '.devin/hooks.v1.json'
       ;;
   esac
 fi
