@@ -39,6 +39,13 @@
 # (grok's mid-turn cancel hint, shown iff a turn is running - verified grok 0.2.73).
 FM_TMUX_BUSY_REGEX_DEFAULT='esc (to )?interrupt|Working\.\.\.|Ctrl\+c:cancel'
 
+# Composer placeholder text per harness (idle composer). claude's ghost text
+# uses SGR 2 (dim/faint) and is caught by fm_tmux_strip_ghost. devin renders its
+# placeholder with a dark RGB color (ESC[38;2;124;124;124m), NOT SGR 2, so the
+# dim-aware stripper alone cannot catch it; these literal patterns are the
+# targeted backstop. Extend when a new adapter's placeholder escapes SGR 2.
+FM_TMUX_COMPOSER_IDLE_RE_DEFAULT='Ask Devin to|Guide Devin while'
+
 # fm_tmux_strip_ghost: remove dim/faint (ANSI SGR 2) styled runs from one captured
 # composer line, then drop any remaining escape sequences, leaving only the plain,
 # normal-intensity text, the text a human actually typed. Dim/faint runs are
@@ -133,8 +140,9 @@ fm_tmux_composer_state() {  # <target> -> empty|pending|unknown
   stripped="${stripped%"${stripped##*[![:space:]]}"}"
   # Nothing left inside the box = empty composer.
   [ -n "$stripped" ] || { printf 'empty'; return 0; }
-  if [ -n "${FM_COMPOSER_IDLE_RE:-}" ] \
-     && printf '%s' "$stripped" | grep -qiE "$FM_COMPOSER_IDLE_RE"; then
+  # Known harness placeholder text (e.g. devin's dark-RGB placeholder that
+  # escapes SGR 2 dim/faint) or a captain-supplied override = empty composer.
+  if printf '%s' "$stripped" | grep -qiE "${FM_COMPOSER_IDLE_RE:-$FM_TMUX_COMPOSER_IDLE_RE_DEFAULT}"; then
     printf 'empty'; return 0
   fi
   # Just a bare prompt glyph = empty composer (idle).

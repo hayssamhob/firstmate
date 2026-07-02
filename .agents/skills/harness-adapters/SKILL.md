@@ -1,6 +1,6 @@
 ---
 name: harness-adapters
-description: Agent-only reference for firstmate harness operations. Use before spawning or recovering a crewmate or secondmate, handling a trust dialog, sending a harness-specific skill invocation, interrupting or exiting an agent, resuming an exited agent, or verifying a new harness adapter. Contains verified facts for claude, codex, opencode, pi, and grok.
+description: Agent-only reference for firstmate harness operations. Use before spawning or recovering a crewmate or secondmate, handling a trust dialog, sending a harness-specific skill invocation, interrupting or exiting an agent, resuming an exited agent, or verifying a new harness adapter. Contains verified facts for claude, codex, opencode, pi, grok, and devin.
 user-invocable: false
 ---
 
@@ -66,6 +66,7 @@ Natural language is acceptable if uncertain.
 
 - claude: `/<skill>`, for example `/no-mistakes`.
 - codex: `$<skill>`, for example `$no-mistakes`; `/<skill>` is claude-only and codex rejects it as "Unrecognized command".
+- devin: `/<skill>`, for example `/no-mistakes` (same form as claude).
 - opencode: no separate verified skill invocation beyond normal slash-command behavior; use natural language if the exact skill command is uncertain.
 - pi: no separate verified skill invocation beyond normal command behavior; use natural language if the exact skill command is uncertain.
 - grok: `/<skill>`, for example `/no-mistakes` (same form as claude). Verified end to end: grok discovers the user-level `no-mistakes` skill, `/no-mistakes` invokes it, and grok drives a real `no-mistakes axi run`. Like codex's `$`/`/` popups, typing `/<skill>` opens grok's slash-autocomplete, so a too-fast Enter selects the popup entry instead of sending; `fm_tmux_submit_core`'s retried Enter (used by `fm-send`) lands it.
@@ -153,11 +154,11 @@ Launch with a positional prompt: `grok --always-approve "$(cat <brief>)"`.
 
 | Fact | Value |
 |---|---|
-| Busy-pane signature | `Ctrl+c:cancel` (the mid-turn cancel hint in grok's keybind bar, shown iff a turn is running; the spinner line is a braille glyph + `<status>… N.Ns` + `[stop]`, e.g. `⠹ Thinking… 1.1s … [stop]`). Idle keybind bar shows only `Shift+Tab:mode │ Ctrl+.:shortcuts`. The ASCII `Ctrl+c:cancel` is the busy regex (avoids locale fragility of matching braille). |
+| Busy-pane signature | `Ctrl+c:cancel` (the mid-turn cancel hint in grok's keybind bar, shown iff a turn is running; the spinner line is a braille glyph + `<status>... N.Ns` + `[stop]`, e.g. `⠹ Thinking... 1.1s ... [stop]`). Idle keybind bar shows only `Shift+Tab:mode | Ctrl+.:shortcuts`. The ASCII `Ctrl+c:cancel` is the busy regex (avoids locale fragility of matching braille). |
 | Exit command | `Ctrl+Q` double-press within 1000ms (it is a confirmed destructive action). Prints `Resume this session with: grok --resume <session-id>`. `Ctrl+D` is the quit key in VS Code family terminals. NOT `/exit` and NOT `Ctrl+C`. |
 | Interrupt | single `Ctrl+C` (cancels the current turn; the footer shows `Ctrl+c:cancel` mid-turn). `Esc` only moves focus to the scrollback, it does NOT interrupt. |
 | Skill invocation | `/<skill>` (e.g. `/no-mistakes`), same as claude. Opens a slash-autocomplete popup, so a too-fast Enter selects the popup entry instead of sending - `fm-send`'s retried Enter lands it. |
-| Autonomy | `--always-approve` (footer shows `· always-approve`); auto-approves every tool execution, verified to run fully unattended. `--permission-mode bypassPermissions` is the stronger equivalent. |
+| Autonomy | `--always-approve` (footer shows `. always-approve`); auto-approves every tool execution, verified to run fully unattended. `--permission-mode bypassPermissions` is the stronger equivalent. |
 | Env marker | `GROK_AGENT=1`, set for child/tool processes. grok does NOT set `CLAUDECODE` despite Claude compatibility, so the marker is unambiguous. |
 | Resume | `grok --resume <session-id>` (id printed on exit) or `grok -c` / `--continue` (most recent for the cwd); `--fork-session` branches a new session id. |
 
@@ -177,3 +178,26 @@ The hook reads `$GROK_WORKSPACE_ROOT`, which is always set for hooks and equals 
 This keeps the hook outside the worktree, needs no trust grant, and writes only firstmate-owned files.
 `fm-teardown` removes the worktree pointer before returning a pooled worktree.
 Secondmate spawns skip the pointer (idle panes are healthy, no stale-pane detection for them).
+
+## devin (VERIFIED 2026-07-02, devin CLI v2026.8.18)
+
+| Fact | Value |
+|---|---|
+| Busy-pane signature | `esc to interrupt` (shown as `Yapping . Ns (esc to interrupt)`) |
+| Exit command | `/exit` (alias `/quit`; plain `exit` or `quit` also work) |
+| Interrupt | single Escape (same as claude) |
+| Skill invocation | `/<skill>` (e.g. `/no-mistakes`), same form as claude |
+
+No trust dialog on first run.
+Devin reads Claude Code-compatible hooks from `.devin/hooks.v1.json`, where the hooks object IS the entire file (no `"hooks"` wrapper key, unlike settings files).
+The `Stop` event fires at every turn boundary, which is the signal the watcher needs.
+`fm-spawn.sh` writes this hook file into the worktree and excludes it from git.
+
+Devin renders its composer placeholder text ("Ask Devin to build features, fix bugs, or work on your code" when idle, "Guide Devin while it works" when busy) using a dark 24-bit RGB color (`ESC[38;2;124;124;124m`), NOT the SGR 2 dim/faint attribute that claude uses for its ghost text.
+The dim-aware ghost stripper in `fm-tmux-lib.sh` only drops SGR 2 runs, so it cannot catch devin's placeholder.
+`fm-tmux-lib.sh` includes these placeholder patterns in `FM_TMUX_COMPOSER_IDLE_RE_DEFAULT` as the targeted backstop, so a devin pane with only placeholder text reads as an empty composer, not pending input.
+
+Resume after exit with `devin --resume <session-id>` or `devin --continue` (most recent session).
+The launch command uses `--prompt-file <brief>` (non-interactive initial prompt) with `--permission-mode dangerous` (auto-approve all tools, the devin equivalent of claude's `--dangerously-skip-permissions`).
+
+Devin has no known env marker for harness detection; `fm-harness.sh` detects it via process ancestry (command name contains `devin`).
