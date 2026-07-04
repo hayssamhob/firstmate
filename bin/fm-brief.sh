@@ -179,8 +179,36 @@ case "$MODE" in
 # Definition of done
 This project ships **direct-PR**: you raise the PR yourself, without the no-mistakes pipeline.
 The task is complete only when committed on your branch.
-When it is implemented and committed, push your branch and open a PR with \`gh-axi\`, then append \`done: PR {url}\` to the status file and stop.
+When it is implemented and committed, push your branch and open a PR with \`gh-axi\`.
 Do NOT run /no-mistakes. The captain reviews and merges the PR; firstmate relays it.
+
+**Do not report \`done\` the moment the PR is opened.** Opening the PR is a milestone, not the finish line.
+Before you append \`done: PR {url}\`, the PR must actually be ready for the captain to merge:
+
+1. **Check the project's own review/CI workflow first - it supersedes this generic instruction.**
+   Read the target project's \`AGENTS.md\` / \`CLAUDE.md\` (and any referenced review-automation docs).
+   If they define a PR validation workflow - waiting for bot review (e.g. a code-assist bot, an
+   independent review gate, a required status check), sweeping review threads, and confirming CI
+   green on the final SHA before reporting done - **follow that workflow**, not the bare
+   "push and report done" line above. The project's own rules win.
+
+2. **Sweep review threads before reporting done.**
+   After the PR is open, wait for whatever bot/human review the project's workflow produces, then
+   address every review comment: fix the code, or reply with a written justification, and resolve
+   the thread. Do not report \`done\` with unresolved review threads on the PR.
+
+3. **Confirm CI is green on the final SHA.**
+   Do not report \`done\` on a still-running, cancelled, or incomplete CI run. Re-check after any
+   fix push that the final SHA's checks are all green.
+
+4. **Address review comments as soon as they appear, do not wait for the full CI suite.**
+   If the project's review automation includes an independent gate (a required status check, a
+   review bot that runs separately from CI), poll for and address its comments as soon as they
+   land - do not sit idle until the whole CI suite finishes and only then discover a review
+   comment that forces a fix-and-rerun cycle. Fixing review findings early collapses multiple
+   gate rounds into one.
+
+Only once review threads are resolved and CI is green on the final SHA, append \`done: PR {url} checks green\` to the status file and stop.
 EOF
 )
     ;;
