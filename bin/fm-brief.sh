@@ -174,7 +174,7 @@ EOF
 case "$MODE" in
   direct-PR)
     SETUP2=""
-    RULE1='1. Never push to the default branch (push only your `fm/'"$ID"'` branch). Never merge a PR.'
+    RULE1="1. Never push to the default branch (push only your \`fm/$ID\` branch). Never merge or close a PR - not yours, not anyone's, no exceptions, even with green checks; merging is exclusively firstmate's call."
     DOD=$(cat <<EOF
 # Definition of done
 This project ships **direct-PR**: you raise the PR yourself, without the no-mistakes pipeline.
@@ -209,6 +209,7 @@ Before you append \`done: PR {url}\`, the PR must actually be ready for the capt
    gate rounds into one.
 
 Only once review threads are resolved and CI is green on the final SHA, append \`done: PR {url} checks green\` to the status file and stop.
+If your branch needs to move to a new PR, never close the old PR yourself - report the situation and let firstmate decide, so reviewer context is not lost.
 EOF
 )
     ;;
@@ -228,7 +229,8 @@ EOF
   *)  # no-mistakes (default)
     SETUP2="
 2. Run \`no-mistakes doctor\`; if it reports the repo is not initialized here, run \`no-mistakes init\`."
-    RULE1='1. Never push to the default branch. Never merge a PR.'
+    RULE1="1. Never push to the default branch. Never merge or close a PR - not yours, not anyone's, no exceptions, even with green checks; merging is exclusively firstmate's call.
+   Systematically address every review comment on your PR (human or bot): fix or reply with justification and resolve the thread before reporting done."
     DOD=$(cat <<EOF
 # Definition of done
 The task is complete only when committed on your branch.
