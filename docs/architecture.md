@@ -82,6 +82,8 @@ Opt-in by presence of local, gitignored `config/claude-foreman.env` and `config/
 Injection is pane-environment only - a `gh` PATH shim, `GH_TOKEN`/`GITHUB_TOKEN` minted in the pane, and `GIT_CONFIG_*` env vars carrying a re-minting credential helper, the bot author identity, and an ssh-to-https GitHub remote rewrite - so no git config file is written globally or in the worktree.
 The helper's 0600 per-task cache re-mints on demand, so tasks longer than the 1h token TTL keep authenticating; the cache and `gh` shim live in a private per-task 0700 directory, and a successful injection records `foreman=` plus that directory as `foremantmp=` in task meta, with teardown removing it.
 With neither file present, spawns are byte-identical; a half-config or failed mint (including a stalled GitHub API, bounded by curl timeouts) warns and falls back to the current identity without blocking the spawn; non-GitHub origins skip silently and secondmate spawns are exempt.
+The injection is delivered by sourcing a token-free per-task `env.sh` with one short pane line, because long inline export keystroke lines were observed truncating in real panes.
+On `no-mistakes` projects the PR is opened by the no-mistakes daemon outside the pane, so the captain-consented `bin/fm-foreman-gh-shim.sh` login-PATH `gh` wrapper (surfaced by bootstrap as `FOREMAN_DAEMON_SHIM:` lines, never installed without consent) makes those daemon-opened PRs author as the bot too, interposing only `gh pr create` with a no-mistakes ancestor and leaving every other `gh` call untouched.
 Details are in [docs/configuration.md](configuration.md).
 
 ## Optional secondmates
