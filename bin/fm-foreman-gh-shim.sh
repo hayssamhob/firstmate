@@ -91,7 +91,7 @@ passthrough() { exec "\$real_gh" "\$@"; }
 # Interpose only \`gh pr create\`, and only when the caller has not already
 # chosen a token explicitly (a crewmate pane's GH_TOKEN wins, per gh semantics).
 { [ "\${1:-}" = pr ] && [ "\${2:-}" = create ]; } || passthrough "\$@"
-[ -z "\${GH_TOKEN:-}" ] || passthrough "\$@"
+{ [ -z "\${GH_TOKEN:-}" ] && [ -z "\${GITHUB_TOKEN:-}" ]; } || passthrough "\$@"
 
 # Gate on a no-mistakes process in the ancestry so nothing else is ever
 # re-identified. Bounded walk; any ps failure falls through to passthrough.
@@ -102,6 +102,11 @@ while [ "\$hops" -lt 40 ]; do
   [ "\$pid" -gt 1 ] || break
   case "\$(ps -o comm= -p "\$pid" 2>/dev/null)" in
     *no-mistakes*) nm_ancestor=1; break ;;
+    *)
+      case "\$(ps -o command= -p "\$pid" 2>/dev/null)" in
+        *no-mistakes*) nm_ancestor=1; break ;;
+      esac
+      ;;
   esac
   hops=\$((hops + 1))
 done

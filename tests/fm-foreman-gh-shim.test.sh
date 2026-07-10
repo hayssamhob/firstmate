@@ -55,12 +55,14 @@ case "$t" in unset|ghs_shimtoken456|ghs_panetoken789) ;; *) t=MASKED ;; esac
 printf 'argv=%s GH_TOKEN=%s\n' "$*" "$t" >> "$FM_FAKE_GH_LOG"
 SH
   chmod +x "$fakebin/gh"
-  # Fake ps: FM_FAKE_PPID steers the parent chain, FM_FAKE_COMM the command
-  # name. FM_FAKE_PPID=1 means "no interesting ancestry" (walk stops at once).
+  # Fake ps: FM_FAKE_PPID steers the parent chain, FM_FAKE_COMM the short
+  # command name, FM_FAKE_COMMAND the full argv (defaults to FM_FAKE_COMM).
+  # FM_FAKE_PPID=1 means "no interesting ancestry" (walk stops at once).
   cat > "$fakebin/ps" <<'SH'
 #!/usr/bin/env bash
 case "$*" in
   *ppid*) printf '%s\n' "${FM_FAKE_PPID:-1}" ;;
+  *command*) printf '%s\n' "${FM_FAKE_COMMAND:-${FM_FAKE_COMM:-bash}}" ;;
   *comm*) printf '%s\n' "${FM_FAKE_COMM:-bash}" ;;
 esac
 SH
@@ -184,6 +186,14 @@ test_non_daemon_and_non_pr_create_pass_through() {
   run_wrapper FM_FAKE_PPID=4242 FM_FAKE_COMM=no-mistakes GH_TOKEN=ghs_panetoken789 -- pr create -R owner/repo
   out=$(cat "$GH_LOG")
   assert_contains "$out" "GH_TOKEN=ghs_panetoken789" "an explicit GH_TOKEN must win over the wrapper"
+  # Preexisting GITHUB_TOKEN only: also respected, not replaced.
+  run_wrapper FM_FAKE_PPID=4242 FM_FAKE_COMM=no-mistakes GITHUB_TOKEN=ghs_panetoken789 -- pr create -R owner/repo
+  out=$(cat "$GH_LOG")
+  assert_contains "$out" "GH_TOKEN=unset" "an explicit GITHUB_TOKEN must win over the wrapper"
+  # Interpreter daemon whose comm is generic but argv shows no-mistakes: interposed.
+  run_wrapper FM_FAKE_PPID=4242 FM_FAKE_COMM=node FM_FAKE_COMMAND="node /opt/no-mistakes/daemon.js" -- pr create -R owner/repo
+  out=$(cat "$GH_LOG")
+  assert_contains "$out" "GH_TOKEN=ghs_shimtoken456" "an argv-visible no-mistakes ancestor must interpose via the command= fallback"
   pass "everything but a daemon pr create passes through untouched"
 }
 
