@@ -867,6 +867,79 @@ $("$FM_ROOT/bin/fm-project-mode.sh" "$PROJ_NAME")
 EOF
 fi
 
+# Crew GitHub identity (Claude Foreman): for a crewmate/scout spawn into a
+# project with a github.com origin, mint a per-task GitHub App installation
+# token scoped to that one repo (contents:write + pull_requests:write) so the
+# crewmate authors commits and PRs as <app-slug>[bot] instead of the captain's
+# personal account. Opt-in by config presence (config/claude-foreman.env +
+# config/claude-foreman.pem; bin/fm-foreman-token.sh): with the config absent
+# this whole block is a silent no-op, and any failure with the config present
+# warns and falls back to the current identity - it never blocks the spawn.
+# Injection is pane-environment only (PATH shim, GH_TOKEN, GIT_CONFIG_* env
+# vars): no git config file is written, globally or in the worktree, so the
+# primary checkout and every other repo are untouched. The 1h token TTL is
+# handled by re-minting on demand: git authenticates through a credential
+# helper and gh through a per-task PATH shim, both of which call the token
+# helper's per-task cache (fresh <50min, re-mint after), so long tasks outlive
+# the TTL without a static token going stale. Secondmate spawns are exempt -
+# they are firstmate homes, not project crews.
+FOREMAN_ACTIVE=
+FOREMAN_BOT_NAME=
+FOREMAN_BOT_EMAIL=
+FOREMAN_CACHE=
+FOREMAN_SLUG=
+if [ "$KIND" != secondmate ]; then
+  foreman_rc=0
+  "$FM_ROOT/bin/fm-foreman-token.sh" configured || foreman_rc=$?
+  if [ "$foreman_rc" -eq 0 ]; then
+    foreman_origin=$(git -C "$PROJ_ABS" remote get-url origin 2>/dev/null || true)
+    case "$foreman_origin" in
+      git@github.com:*) FOREMAN_SLUG=${foreman_origin#git@github.com:} ;;
+      ssh://git@github.com/*) FOREMAN_SLUG=${foreman_origin#ssh://git@github.com/} ;;
+      https://github.com/*) FOREMAN_SLUG=${foreman_origin#https://github.com/} ;;
+      http://github.com/*) FOREMAN_SLUG=${foreman_origin#http://github.com/} ;;
+      *) FOREMAN_SLUG= ;;
+    esac
+    FOREMAN_SLUG=${FOREMAN_SLUG%/}
+    FOREMAN_SLUG=${FOREMAN_SLUG%.git}
+    case "$FOREMAN_SLUG" in
+      */*/*|*/|/*) FOREMAN_SLUG= ;;
+      */*) : ;;
+      *) FOREMAN_SLUG= ;;
+    esac
+    if [ -n "$FOREMAN_SLUG" ]; then
+      FOREMAN_CACHE="$TASK_TMP/foreman-token.json"
+      if "$FM_ROOT/bin/fm-foreman-token.sh" token "$FOREMAN_SLUG" "$FOREMAN_CACHE" >/dev/null \
+        && foreman_identity=$("$FM_ROOT/bin/fm-foreman-token.sh" bot-identity); then
+        FOREMAN_BOT_NAME=$(printf '%s\n' "$foreman_identity" | sed -n 1p)
+        FOREMAN_BOT_EMAIL=$(printf '%s\n' "$foreman_identity" | sed -n 2p)
+        FOREMAN_ACTIVE=1
+        # gh shim: re-mints per gh invocation so gh calls hours into the task
+        # still authenticate as the bot. Written only when a real gh exists.
+        foreman_real_gh=$(command -v gh 2>/dev/null || true)
+        if [ -n "$foreman_real_gh" ]; then
+          mkdir -p "$TASK_TMP/bin"
+          cat > "$TASK_TMP/bin/gh" <<EOF
+#!/bin/sh
+# firstmate Claude Foreman gh shim: refresh the app installation token per call.
+t=\$($(shell_quote "$FM_ROOT/bin/fm-foreman-token.sh") token $(shell_quote "$FOREMAN_SLUG") $(shell_quote "$FOREMAN_CACHE") 2>/dev/null) || t=
+if [ -n "\$t" ]; then
+  GH_TOKEN=\$t GITHUB_TOKEN=\$t exec $(shell_quote "$foreman_real_gh") "\$@"
+fi
+exec $(shell_quote "$foreman_real_gh") "\$@"
+EOF
+          chmod +x "$TASK_TMP/bin/gh"
+        fi
+      else
+        echo "warning: Claude Foreman identity unavailable for $FOREMAN_SLUG; crewmate $ID keeps the default GitHub identity" >&2
+        FOREMAN_ACTIVE=
+      fi
+    fi
+  elif [ "$foreman_rc" -ne 3 ]; then
+    echo "warning: Claude Foreman config incomplete; crewmate $ID keeps the default GitHub identity" >&2
+  fi
+fi
+
 {
   echo "window=$T"
   echo "worktree=$WT"
@@ -892,6 +965,9 @@ fi
     echo "home=$PROJ_ABS"
     echo "projects=$SECONDMATE_PROJECTS"
   fi
+  # foreman= is written only when the Claude Foreman identity was injected, so
+  # the default path's meta stays byte-identical.
+  [ -z "$FOREMAN_ACTIVE" ] || echo "foreman=$FOREMAN_BOT_NAME"
 } > "$STATE/$ID.meta"
 
 sq_brief=$(shell_quote "$BRIEF")
@@ -908,6 +984,28 @@ if [ "$KIND" = secondmate ]; then
   sq_home=$(shell_quote "$PROJ_ABS")
   LAUNCH="FM_ROOT_OVERRIDE= FM_STATE_OVERRIDE= FM_DATA_OVERRIDE= FM_PROJECTS_OVERRIDE= FM_CONFIG_OVERRIDE= FM_HOME=$sq_home $LAUNCH"
 fi
+# Inject the Claude Foreman identity into the crewmate's pane shell before
+# launch. Three pieces, all environment-scoped to this pane (no git config file
+# is touched anywhere):
+#   1. PATH shim (when a real gh exists): gh calls re-mint the token on demand.
+#   2. GH_TOKEN/GITHUB_TOKEN: minted via command substitution IN the pane so the
+#      token never appears in scrollback; covers tools that read the env directly.
+#   3. GIT_CONFIG_* env: reset then install the re-minting credential helper for
+#      https://github.com, set the bot author identity, and rewrite ssh GitHub
+#      remotes to https so pushes authenticate with the app token.
+if [ -n "$FOREMAN_ACTIVE" ]; then
+  sq_foreman_helper=$(shell_quote "$FM_ROOT/bin/fm-foreman-token.sh")
+  sq_foreman_slug=$(shell_quote "$FOREMAN_SLUG")
+  sq_foreman_cache=$(shell_quote "$FOREMAN_CACHE")
+  if [ -x "$TASK_TMP/bin/gh" ]; then
+    spawn_send_text_line "$T" "export PATH=$(shell_quote "$TASK_TMP/bin"):\"\$PATH\""
+  fi
+  spawn_send_text_line "$T" "fm_t=\$($sq_foreman_helper token $sq_foreman_slug $sq_foreman_cache 2>/dev/null) && [ -n \"\$fm_t\" ] && export GH_TOKEN=\"\$fm_t\" GITHUB_TOKEN=\"\$fm_t\"; unset fm_t"
+  foreman_cred_value="!$sq_foreman_helper credential $sq_foreman_slug $sq_foreman_cache"
+  spawn_send_text_line "$T" "export GIT_CONFIG_COUNT=6 GIT_CONFIG_KEY_0=credential.https://github.com.helper GIT_CONFIG_VALUE_0= GIT_CONFIG_KEY_1=credential.https://github.com.helper GIT_CONFIG_VALUE_1=$(shell_quote "$foreman_cred_value") GIT_CONFIG_KEY_2=user.name GIT_CONFIG_VALUE_2=$(shell_quote "$FOREMAN_BOT_NAME") GIT_CONFIG_KEY_3=user.email GIT_CONFIG_VALUE_3=$(shell_quote "$FOREMAN_BOT_EMAIL") GIT_CONFIG_KEY_4=url.https://github.com/.insteadOf GIT_CONFIG_VALUE_4=git@github.com: GIT_CONFIG_KEY_5=url.https://github.com/.insteadOf GIT_CONFIG_VALUE_5=ssh://git@github.com/"
+  sleep 0.3
+fi
+
 # Export GOTMPDIR into the crewmate's pane shell so the agent and every child
 # process (go build, go test, ...) inherit it. Sent before the launch command so
 # the env is set when the agent starts; the brief sleep lets the export land.

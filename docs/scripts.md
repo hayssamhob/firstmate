@@ -41,6 +41,7 @@ Each file also starts with a short header comment.
 | `fm-promote.sh`          | Promote a scout task in place so it becomes a protected ship task                                                   |
 | `fm-teardown.sh`         | Return a clean, landed ship worktree or retire/release a secondmate home; requires scout reports, checks child work, removes firstmate-owned hook artifacts, and prints the backlog-backend reminder |
 | `fm-harness.sh`          | Detect the running harness; resolve the effective crewmate (`crew`) or secondmate-launch (`secondmate`) harness; expose optional `config/secondmate-harness` model and effort tokens with `secondmate-model` and `secondmate-effort` |
+| `fm-foreman-token.sh`    | Mint, cache (0600, on-demand re-mint), and serve repo-scoped GitHub App installation tokens for the opt-in Claude Foreman crew identity; speaks the git credential-helper protocol and resolves the bot author identity |
 | `fm-lock.sh`             | Per-home firstmate session lock                                                                                     |
 | `fm-x-lib.sh`            | Shared X-mode `.env`, alternate env-file, relay, dry-run config, reply-thread splitting, outbound image payloads, and task-to-X-request meta-link helpers |
 | `fm-x-poll.sh`           | Do one bounded X relay poll; without `FMX_PAIRING_TOKEN` it is silent, with a pending mention it stashes the full inbox JSON, including `in_reply_to`, and prints `x-mention <request_id>` |

@@ -29,6 +29,19 @@ Task meta records `backend=` only for a non-default backend; an absent `backend=
 A herdr task additionally records `herdr_session=`, `herdr_workspace_id=`, `herdr_tab_id=`, and `herdr_pane_id=`.
 The `config/backend` file is not inherited by secondmate homes.
 
+## Crew GitHub identity (config/claude-foreman.env + config/claude-foreman.pem)
+
+Opt-in GitHub App identity for crewmates: with both local, gitignored files present, `fm-spawn.sh` mints a per-task installation token scoped to the spawned project's repository (`contents:write` + `pull_requests:write`) and injects it into the crewmate's pane environment, so commits and PRs author as `<app-slug>[bot]` instead of the captain's personal account.
+`config/claude-foreman.env` carries the app coordinates (`FM_FOREMAN_APP_ID`, `FM_FOREMAN_INSTALLATION_ID`, optional `FM_FOREMAN_APP_SLUG` and `FM_FOREMAN_PEM`); see `docs/examples/claude-foreman.env`.
+`config/claude-foreman.pem` is the app's RS256 private key (mode 600); it is never committed, copied into a repo, or printed.
+With neither file present, spawns are byte-identical to before; a half-configured setup or a failing mint warns to stderr and falls back to the current identity, never blocking the spawn.
+Injection is pane-environment only - a PATH shim for `gh`, `GH_TOKEN`/`GITHUB_TOKEN` minted in the pane, and `GIT_CONFIG_*` env vars that install a re-minting credential helper, the bot author identity, and an ssh-to-https GitHub remote rewrite - so no git config file is written globally or in the worktree.
+The 1h token TTL is handled by re-minting on demand through `bin/fm-foreman-token.sh`'s per-task cache (served while younger than ~50 minutes), so long tasks outlive the TTL without a static token going stale.
+Secondmate spawns are exempt: they are firstmate homes, not project crews.
+Non-GitHub origins skip injection silently.
+The resolved bot user id is cached in gitignored `config/claude-foreman.bot`.
+These files are not inherited by secondmate homes.
+
 ## Gate defaults (.no-mistakes.yaml)
 
 The tracked `.no-mistakes.yaml` keeps test evidence outside the repo and defines `commands.test` so no-mistakes runs firstmate's bash behavior suite directly.
