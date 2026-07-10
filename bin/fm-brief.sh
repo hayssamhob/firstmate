@@ -175,7 +175,10 @@ case "$MODE" in
   direct-PR)
     SETUP2=""
     RULE1="1. Never push to the default branch (push only your \`fm/$ID\` branch). Never merge or close a PR - not yours, not anyone's, no exceptions, even with green checks; merging is exclusively firstmate's call."
-    DOD=$(cat <<EOF
+    # read -d '' instead of DOD=$(cat <<EOF ...): bash 3.2 (macOS /bin/bash)
+    # cannot parse apostrophes inside a heredoc inside $(). read hits EOF
+    # without the NUL delimiter and returns 1, hence || true under set -e.
+    IFS= read -r -d '' DOD <<EOF || true
 # Definition of done
 This project ships **direct-PR**: you raise the PR yourself, without the no-mistakes pipeline.
 The task is complete only when committed on your branch.
@@ -211,12 +214,11 @@ Before you append \`done: PR {url}\`, the PR must actually be ready for the capt
 Only once review threads are resolved and CI is green on the final SHA, append \`done: PR {url} checks green\` to the status file and stop.
 If your branch needs to move to a new PR, never close the old PR yourself - report the situation and let firstmate decide, so reviewer context is not lost.
 EOF
-)
     ;;
   local-only)
     SETUP2=""
     RULE1="1. Never push to any remote and never open a PR. Work only on your \`fm/$ID\` branch; firstmate handles the merge into local \`main\`."
-    DOD=$(cat <<EOF
+    IFS= read -r -d '' DOD <<EOF || true
 # Definition of done
 This project ships **local-only**: no remote, no PR, no pipeline.
 The task is complete only when committed on your branch \`fm/$ID\`. Do NOT push, do NOT open a PR, do NOT merge.
@@ -224,14 +226,13 @@ Keep your branch a clean fast-forward onto the current default branch - if \`mai
 When it is implemented and committed, append \`done: ready in branch fm/$ID\` to the status file and stop.
 Firstmate then reviews your branch diff, the captain approves, and firstmate merges it into local \`main\`.
 EOF
-)
     ;;
   *)  # no-mistakes (default)
     SETUP2="
 2. Run \`no-mistakes doctor\`; if it reports the repo is not initialized here, run \`no-mistakes init\`."
     RULE1="1. Never push to the default branch. Never merge or close a PR - not yours, not anyone's, no exceptions, even with green checks; merging is exclusively firstmate's call.
    Systematically address every review comment on your PR (human or bot): fix or reply with justification and resolve the thread before reporting done."
-    DOD=$(cat <<EOF
+    IFS= read -r -d '' DOD <<EOF || true
 # Definition of done
 The task is complete only when committed on your branch.
 When you believe it is complete, append \`done: {summary}\` to the status file and stop.
@@ -248,9 +249,10 @@ Two firstmate-specific rules layer on top of that guidance:
 
 After /no-mistakes reports CI green, append \`done: PR {url} checks green\` and stop. You are finished.
 EOF
-)
     ;;
 esac
+# $(cat ...) stripped the trailing newline; read -d '' keeps it. Match the old output.
+DOD=${DOD%$'\n'}
 
 cat > "$BRIEF" <<EOF
 You are a crewmate: an autonomous worker agent managed by firstmate. Work on your own; do not wait for a human.
