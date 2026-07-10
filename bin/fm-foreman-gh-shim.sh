@@ -69,9 +69,11 @@ set -u
 FM_ROOT=$(shell_quote "$FM_ROOT")
 FM_HOME=$(shell_quote "$FM_HOME")
 
-self_dir=\$(CDPATH= cd -- "\$(dirname -- "\$0")" 2>/dev/null && pwd -P)
+self_dir=\$(CDPATH= cd "\$(dirname "\$0")" 2>/dev/null && pwd -P) || self_dir=
 real_gh=
-old_ifs=\$IFS; IFS=:
+old_ifs_was_set=\${IFS+set}
+old_ifs=\${IFS:-}
+IFS=:
 for d in \$PATH; do
   [ -n "\$d" ] || continue
   [ -x "\$d/gh" ] || continue
@@ -80,7 +82,7 @@ for d in \$PATH; do
   real_gh="\$d/gh"
   break
 done
-IFS=\$old_ifs
+if [ "\$old_ifs_was_set" = set ]; then IFS=\$old_ifs; else unset IFS; fi
 if [ -z "\$real_gh" ]; then
   echo "fm-foreman-gh-shim: no real gh found on PATH" >&2
   exit 127
@@ -119,6 +121,7 @@ for a in "\$@"; do
   if [ "\$prev" = repo ]; then slug=\$a; prev=; continue; fi
   case "\$a" in
     -R|--repo) prev=repo ;;
+    -R?*) slug=\${a#-R} ;;
     --repo=*) slug=\${a#--repo=} ;;
   esac
 done

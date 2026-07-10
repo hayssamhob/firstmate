@@ -98,11 +98,18 @@ install_shim() {
 JQ_DIR=$(dirname "$(command -v jq)")
 OPENSSL_DIR=$(dirname "$(command -v openssl)")
 run_wrapper() {
-  local envs=()
-  while [ "$1" != -- ]; do envs+=("$1"); shift; done
+  local envs=() unsets=(-u GH_TOKEN -u GITHUB_TOKEN)
+  while [ "$1" != -- ]; do
+    if [ "$1" = "IFS_UNSET=1" ]; then
+      unsets+=(-u IFS)
+    else
+      envs+=("$1")
+    fi
+    shift
+  done
   shift
   : > "$GH_LOG"
-  env -u GH_TOKEN -u GITHUB_TOKEN "${envs[@]}" FM_FAKE_GH_LOG="$GH_LOG" \
+  env "${unsets[@]}" "${envs[@]}" FM_FAKE_GH_LOG="$GH_LOG" \
     PATH="$BIN_DIR:$FAKEBIN:$JQ_DIR:$OPENSSL_DIR:/usr/bin:/bin" "$BIN_DIR/gh" "$@"
 }
 
@@ -169,6 +176,22 @@ test_daemon_pr_create_gets_bot_token() {
   pass "no-mistakes-ancestry gh pr create authenticates as the bot"
 }
 
+test_attached_repo_flag_and_unset_ifs() {
+  local rec out
+  rec=$(make_case attached-flag)
+  read_case "$rec"
+  install_shim >/dev/null || fail "install failed"
+  # -Rowner/repo (attached form) must resolve the slug exactly like -R owner/repo.
+  run_wrapper FM_FAKE_PPID=4242 FM_FAKE_COMM=no-mistakes -- pr create -Rowner/repo --title t
+  out=$(cat "$GH_LOG")
+  assert_contains "$out" "GH_TOKEN=ghs_shimtoken456" "attached -Rowner/repo form should mint the bot token"
+  # An unset IFS in the caller's environment must not crash the wrapper under set -u.
+  run_wrapper FM_FAKE_PPID=4242 FM_FAKE_COMM=no-mistakes IFS_UNSET=1 -- pr create -R owner/repo --title t
+  out=$(cat "$GH_LOG")
+  assert_contains "$out" "GH_TOKEN=ghs_shimtoken456" "wrapper must not crash or fall through when IFS is unset"
+  pass "attached -R flag resolves and an unset IFS does not crash the wrapper"
+}
+
 test_non_daemon_and_non_pr_create_pass_through() {
   local rec out
   rec=$(make_case passthrough)
@@ -217,5 +240,6 @@ test_install_status_remove_lifecycle
 test_refuses_foreign_gh
 test_install_requires_foreman_config
 test_daemon_pr_create_gets_bot_token
+test_attached_repo_flag_and_unset_ifs
 test_non_daemon_and_non_pr_create_pass_through
 test_mint_failure_and_no_slug_pass_through
