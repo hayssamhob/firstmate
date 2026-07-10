@@ -79,6 +79,8 @@ tests/fm-x-mode.test.sh                   # X-mode poll, inbox context round-tri
 tests/fm-tangle-guard.test.sh             # primary-checkout tangle detection and spawn/brief isolation tests
 tests/fm-spawn-batch.test.sh              # batch dispatch and FM_HOME project-path scoping tests
 tests/fm-spawn-dispatch-profile.test.sh   # concrete dispatch profile flags: active-profile backstop, harness/model/effort meta, launch templates, batch forwarding, and secondmate exemption
+tests/fm-foreman-token.test.sh            # fm-foreman-token.sh installation-token mint, 0600 cache serve/re-mint, credential-helper protocol, bot-identity resolution, and failure fallbacks (throwaway RSA key + fake curl, no real key)
+tests/fm-foreman-spawn.test.sh            # opt-in crew GitHub identity at spawn: pane-env-only injection, byte-identical skip when unconfigured, half-config/failed-mint fallback warnings, non-GitHub-origin and secondmate exemptions, and foreman= meta
 tests/fm-update.test.sh                   # fast-forward-only self-update, reread, nudge, dedup, and skip-safety tests
 tests/fm-secondmate-sync.test.sh          # local-HEAD secondmate sync, no-fetch, bootstrap nudge gating, and spawn hook tests
 tests/fm-secondmate-harness.test.sh       # secondmate-vs-crewmate harness resolution, optional secondmate model/effort pins, primary-to-secondmate config inheritance, and config-push tests

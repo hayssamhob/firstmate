@@ -76,6 +76,14 @@ Secondmate launches are exempt because they resolve the secondmate harness and a
 Unsupported effort values are still recorded in task meta when passed to `fm-spawn.sh`, but the launch template omits any effort flag that the selected harness does not accept.
 That keeps spawn launch compatible across claude, codex, grok, pi, opencode, and devin while preserving the requested profile for later audit.
 
+## Optional crew GitHub identity
+
+Opt-in by presence of local, gitignored `config/claude-foreman.env` and `config/claude-foreman.pem`: `fm-spawn.sh` has `bin/fm-foreman-token.sh` mint a per-task GitHub App installation token scoped to the spawned project's repository, so crewmates author commits and PRs as `<app-slug>[bot]` instead of the captain's personal account.
+Injection is pane-environment only - a `gh` PATH shim, `GH_TOKEN`/`GITHUB_TOKEN` minted in the pane, and `GIT_CONFIG_*` env vars carrying a re-minting credential helper, the bot author identity, and an ssh-to-https GitHub remote rewrite - so no git config file is written globally or in the worktree.
+The helper's 0600 per-task cache re-mints on demand, so tasks longer than the 1h token TTL keep authenticating; the cache and `gh` shim live in a private per-task 0700 directory, and a successful injection records `foreman=` plus that directory as `foremantmp=` in task meta, with teardown removing it.
+With neither file present, spawns are byte-identical; a half-config or failed mint (including a stalled GitHub API, bounded by curl timeouts) warns and falls back to the current identity without blocking the spawn; non-GitHub origins skip silently and secondmate spawns are exempt.
+Details are in [docs/configuration.md](configuration.md).
+
 ## Optional secondmates
 
 `data/secondmates.md` records persistent domain supervisors with natural-language scopes, project clone lists, and home paths.
