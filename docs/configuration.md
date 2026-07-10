@@ -37,6 +37,7 @@ Opt-in GitHub App identity for crewmates: with both local, gitignored files pres
 With neither file present, spawns are byte-identical to before; a half-configured setup or a failing mint warns to stderr and falls back to the current identity, never blocking the spawn.
 Injection is pane-environment only - a PATH shim for `gh`, `GH_TOKEN`/`GITHUB_TOKEN` minted in the pane, and `GIT_CONFIG_*` env vars that install a re-minting credential helper, the bot author identity, and an ssh-to-https GitHub remote rewrite - so no git config file is written globally or in the worktree.
 The 1h token TTL is handled by re-minting on demand through `bin/fm-foreman-token.sh`'s per-task cache (served while younger than ~50 minutes), so long tasks outlive the TTL without a static token going stale.
+The token cache and `gh` shim live in a private per-task 0700 directory recorded as `foremantmp=` in task meta and removed by teardown.
 Secondmate spawns are exempt: they are firstmate homes, not project crews.
 Non-GitHub origins skip injection silently.
 The resolved bot user id is cached in gitignored `config/claude-foreman.bot`.
