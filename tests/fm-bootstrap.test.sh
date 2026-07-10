@@ -203,7 +203,72 @@ ROWS
   pass "bootstrap validates crew-dispatch.json and reports malformed or unverified configs"
 }
 
+test_foreman_daemon_shim_check() {
+  local case_dir fakebin out
+  # 1. Foreman not configured, no wrapper installed: silent.
+  case_dir="$TMP_ROOT/foreman-shim-off"
+  mkdir -p "$case_dir/home/config"
+  printf '%s\n' manual > "$case_dir/home/config/backlog-backend"
+  fakebin=$(make_fake_toolchain "$case_dir")
+  out=$(PATH="$fakebin:$BASE_PATH" FM_HOME="$case_dir/home" FM_ROOT_OVERRIDE="$ROOT" \
+    FM_FOREMAN_SHIM_BIN_DIR="$case_dir/shim-bin" FM_FAKE_TREEHOUSE_LEASE_HELP=1 "$ROOT/bin/fm-bootstrap.sh")
+  assert_not_contains "$out" "FOREMAN_DAEMON_SHIM" "unconfigured foreman with no wrapper must stay silent"
+
+  # 2. Foreman configured, wrapper missing: reports missing.
+  case_dir="$TMP_ROOT/foreman-shim-missing"
+  mkdir -p "$case_dir/home/config"
+  printf '%s\n' manual > "$case_dir/home/config/backlog-backend"
+  printf 'FM_FOREMAN_APP_ID=1\nFM_FOREMAN_INSTALLATION_ID=2\n' > "$case_dir/home/config/claude-foreman.env"
+  printf 'fake key\n' > "$case_dir/home/config/claude-foreman.pem"
+  fakebin=$(make_fake_toolchain "$case_dir")
+  out=$(PATH="$fakebin:$BASE_PATH" FM_HOME="$case_dir/home" FM_ROOT_OVERRIDE="$ROOT" \
+    FM_FOREMAN_SHIM_BIN_DIR="$case_dir/shim-bin" FM_FAKE_TREEHOUSE_LEASE_HELP=1 "$ROOT/bin/fm-bootstrap.sh")
+  printf '%s\n' "$out" | grep -q '^FOREMAN_DAEMON_SHIM: missing' || fail "configured foreman with no wrapper must report missing, got: $out"
+
+  # 3. Foreman configured, wrapper installed (via the real installer): silent.
+  case_dir="$TMP_ROOT/foreman-shim-installed"
+  mkdir -p "$case_dir/home/config"
+  printf '%s\n' manual > "$case_dir/home/config/backlog-backend"
+  printf 'FM_FOREMAN_APP_ID=1\nFM_FOREMAN_INSTALLATION_ID=2\n' > "$case_dir/home/config/claude-foreman.env"
+  printf 'fake key\n' > "$case_dir/home/config/claude-foreman.pem"
+  FM_HOME="$case_dir/home" FM_ROOT_OVERRIDE="$ROOT" FM_FOREMAN_SHIM_BIN_DIR="$case_dir/shim-bin" \
+    "$ROOT/bin/fm-foreman-gh-shim.sh" install >/dev/null || fail "test setup: foreman shim install failed"
+  fakebin=$(make_fake_toolchain "$case_dir")
+  out=$(PATH="$fakebin:$BASE_PATH" FM_HOME="$case_dir/home" FM_ROOT_OVERRIDE="$ROOT" \
+    FM_FOREMAN_SHIM_BIN_DIR="$case_dir/shim-bin" FM_FAKE_TREEHOUSE_LEASE_HELP=1 "$ROOT/bin/fm-bootstrap.sh")
+  assert_not_contains "$out" "FOREMAN_DAEMON_SHIM" "configured foreman with the wrapper installed must stay silent"
+
+  # 4. Foreman no longer configured, wrapper still installed: reports stale.
+  case_dir="$TMP_ROOT/foreman-shim-stale"
+  mkdir -p "$case_dir/home/config" "$case_dir/setup-home/config"
+  printf '%s\n' manual > "$case_dir/home/config/backlog-backend"
+  printf 'FM_FOREMAN_APP_ID=1\nFM_FOREMAN_INSTALLATION_ID=2\n' > "$case_dir/setup-home/config/claude-foreman.env"
+  printf 'fake key\n' > "$case_dir/setup-home/config/claude-foreman.pem"
+  FM_HOME="$case_dir/setup-home" FM_ROOT_OVERRIDE="$ROOT" FM_FOREMAN_SHIM_BIN_DIR="$case_dir/shim-bin" \
+    "$ROOT/bin/fm-foreman-gh-shim.sh" install >/dev/null || fail "test setup: foreman shim install failed"
+  fakebin=$(make_fake_toolchain "$case_dir")
+  out=$(PATH="$fakebin:$BASE_PATH" FM_HOME="$case_dir/home" FM_ROOT_OVERRIDE="$ROOT" \
+    FM_FOREMAN_SHIM_BIN_DIR="$case_dir/shim-bin" FM_FAKE_TREEHOUSE_LEASE_HELP=1 "$ROOT/bin/fm-bootstrap.sh")
+  printf '%s\n' "$out" | grep -q '^FOREMAN_DAEMON_SHIM: stale' || fail "unconfigured foreman with the wrapper still installed must report stale, got: $out"
+
+  # 5. Foreman configured, a foreign (non-wrapper) gh occupies the path: reports foreign.
+  case_dir="$TMP_ROOT/foreman-shim-foreign"
+  mkdir -p "$case_dir/home/config" "$case_dir/shim-bin"
+  printf '%s\n' manual > "$case_dir/home/config/backlog-backend"
+  printf 'FM_FOREMAN_APP_ID=1\nFM_FOREMAN_INSTALLATION_ID=2\n' > "$case_dir/home/config/claude-foreman.env"
+  printf 'fake key\n' > "$case_dir/home/config/claude-foreman.pem"
+  printf '#!/bin/sh\necho real gh\n' > "$case_dir/shim-bin/gh"
+  chmod +x "$case_dir/shim-bin/gh"
+  fakebin=$(make_fake_toolchain "$case_dir")
+  out=$(PATH="$fakebin:$BASE_PATH" FM_HOME="$case_dir/home" FM_ROOT_OVERRIDE="$ROOT" \
+    FM_FOREMAN_SHIM_BIN_DIR="$case_dir/shim-bin" FM_FAKE_TREEHOUSE_LEASE_HELP=1 "$ROOT/bin/fm-bootstrap.sh")
+  printf '%s\n' "$out" | grep -q '^FOREMAN_DAEMON_SHIM: foreign' || fail "a foreign gh at the wrapper path must report foreign, got: $out"
+
+  pass "bootstrap reports FOREMAN_DAEMON_SHIM missing/stale/foreign and stays silent when converged"
+}
+
 test_bootstrap_reporting
 test_no_mistakes_min_version
 test_crew_dispatch_active_rules_are_surfaced
 test_crew_dispatch_validation
+test_foreman_daemon_shim_check
