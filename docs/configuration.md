@@ -37,12 +37,19 @@ Opt-in GitHub App identity for crewmates: with both local, gitignored files pres
 With neither file present, spawns are byte-identical to before; a half-configured setup or a failing mint warns to stderr and falls back to the current identity, never blocking the spawn.
 The spawn-time GitHub API calls run with bounded curl timeouts (connect 5s, total 30s), so a stalled API degrades to that same warn-and-fallback path instead of hanging the spawn.
 Injection is pane-environment only - a PATH shim for `gh`, `GH_TOKEN`/`GITHUB_TOKEN` minted in the pane, and `GIT_CONFIG_*` env vars that install a re-minting credential helper, the bot author identity, and an ssh-to-https GitHub remote rewrite - so no git config file is written globally or in the worktree.
+The injection is delivered as one short pane line that sources a per-task `env.sh` written into the private foreman dir; the file holds no token value (the token is minted at source time in the pane), and the single short line avoids the pane-keystroke truncation that long inline export lines were observed to hit, which broke git and gh in the task.
 The 1h token TTL is handled by re-minting on demand through `bin/fm-foreman-token.sh`'s per-task cache (served while younger than ~50 minutes), so long tasks outlive the TTL without a static token going stale; a corrupted cache file simply triggers a re-mint.
 The token cache and `gh` shim live in a private per-task 0700 directory recorded as `foremantmp=` in task meta and removed by teardown.
 Secondmate spawns are exempt: they are firstmate homes, not project crews.
 Non-GitHub origins skip injection silently.
 The resolved bot user id is cached in gitignored `config/claude-foreman.bot`.
 These files are not inherited by secondmate homes.
+
+On a `no-mistakes` project, the PR is opened by the no-mistakes daemon from its own login-shell environment, outside the crewmate pane that carries the token, so the pane injection alone cannot make those PRs author as the bot.
+`bin/fm-foreman-gh-shim.sh install` closes that gap: it renders a firstmate-owned `gh` wrapper to `~/.local/bin/gh` (override with `FM_FOREMAN_SHIM_BIN_DIR`), ahead of the real `gh` on the login PATH.
+The wrapper interposes exactly one case - `gh pr create` invoked with a no-mistakes process in the caller's ancestry, no `GH_TOKEN` already set, and a repo the identity can mint a token for - and execs the real `gh` with a freshly minted installation token; every other invocation, including all interactive `gh` use and the captain approving bot PRs, passes through untouched.
+Its per-repo token cache lives in the home's `state/foreman-shim/` (0700), and the wrapper itself never prints a token.
+Bootstrap reports the wrapper's state as `FOREMAN_DAEMON_SHIM:` lines through the normal detect -> consent -> install flow (`missing` when the identity is configured but the wrapper is absent, `stale` when the wrapper outlives the config, `foreign` when a non-wrapper `gh` occupies the path); it never installs or removes the wrapper by itself, and `install`/`remove` refuse to touch a `gh` that is not the marked firstmate wrapper.
 
 ## Gate defaults (.no-mistakes.yaml)
 

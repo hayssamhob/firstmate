@@ -11,7 +11,8 @@
 #                 "TASKS_AXI: available", "TANGLE: <remediation>",
 #                 "SECONDMATE_SYNC: secondmate <id>: skipped: <reason>",
 #                 "NUDGE_SECONDMATES: <window-targets...>",
-#                 "FMX: X mode on ..." or "FMX: X mode off ...".
+#                 "FMX: X mode on ..." or "FMX: X mode off ...",
+#                 "FOREMAN_DAEMON_SHIM: missing|stale|foreign <detail>".
 #          A NUDGE_SECONDMATES line lists the RUNNING secondmate windows whose
 #          worktree was fast-forwarded to firstmate's own current default-branch
 #          commit (a purely LOCAL fast-forward, never an origin fetch) AND whose
@@ -368,6 +369,29 @@ crew_dispatch_validate() {
   ' "$file"
 }
 
+# Claude Foreman daemon gh shim: with the crew identity configured, PRs opened
+# by the no-mistakes daemon (which runs gh outside the crewmate pane env) still
+# author as the personal account unless the login-PATH gh wrapper is installed.
+# Detect-and-report only, like MISSING lines: install/remove run on captain
+# consent via bin/fm-foreman-gh-shim.sh.
+foreman_daemon_shim_check() {
+  local rc=0 st
+  [ -x "$FM_ROOT/bin/fm-foreman-gh-shim.sh" ] || return 0
+  "$FM_ROOT/bin/fm-foreman-token.sh" configured >/dev/null 2>&1 || rc=$?
+  st=$("$FM_ROOT/bin/fm-foreman-gh-shim.sh" status 2>/dev/null || true)
+  if [ "$rc" -eq 0 ]; then
+    case "$st" in
+      installed*) ;;
+      foreign*) echo "FOREMAN_DAEMON_SHIM: ${st:-foreign gh} is not the firstmate wrapper - PRs opened by the no-mistakes pipeline keep the personal identity until it is moved aside and bin/fm-foreman-gh-shim.sh install is run" ;;
+      *) echo "FOREMAN_DAEMON_SHIM: missing - PRs opened by the no-mistakes pipeline author as the personal account, not the Claude Foreman bot (install: bin/fm-foreman-gh-shim.sh install)" ;;
+    esac
+  else
+    case "$st" in
+      installed*) echo "FOREMAN_DAEMON_SHIM: stale - Claude Foreman is no longer configured but the gh wrapper is still installed (remove: bin/fm-foreman-gh-shim.sh remove)" ;;
+    esac
+  fi
+}
+
 if [ "${1:-}" = "install" ]; then
   shift
   [ $# -gt 0 ] || { echo "usage: fm-bootstrap.sh install <tool>..." >&2; exit 1; }
@@ -402,6 +426,7 @@ crew=
 [ -f "$CONFIG/crew-harness" ] && crew=$(tr -d '[:space:]' < "$CONFIG/crew-harness" || true)
 [ -n "$crew" ] && [ "$crew" != "default" ] && echo "CREW_HARNESS_OVERRIDE: $crew"
 crew_dispatch_validate
+foreman_daemon_shim_check
 if ! fm_backlog_backend_manual "$CONFIG"; then
   if fm_tasks_axi_compatible; then
     echo "TASKS_AXI: available"

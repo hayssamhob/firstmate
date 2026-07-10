@@ -100,6 +100,7 @@ state/               volatile runtime signals; gitignored
   x-watch.check.sh   generated X-mode relay poll shim; present only when opted in (section 14)
   x-inbox/           generated X-mode pending mention payloads; fmx-respond drains it (section 14)
   x-outbox/          generated X-mode dry-run reply and dismiss previews; inspect it when FMX_DRY_RUN is set (section 14)
+  foreman-shim/      per-repo token caches (0600) written by the captain-consented Claude Foreman daemon gh wrapper (bin/fm-foreman-gh-shim.sh; docs/configuration.md); safe to delete, re-minted on demand
   x-poll.error       generated X-mode relay diagnostic dedupe marker
   .wake-queue        durable queued wakes: epoch<TAB>seq<TAB>kind<TAB>key<TAB>payload
   .afk               durable away-mode flag; present = sub-supervisor may inject escalations (set by /afk, cleared on user return)
@@ -158,6 +159,8 @@ Otherwise it prints one line per problem or capability fact; handle each:
   This mirrors `/updatefirstmate`'s `nudge-secondmates:` report: it is a gentle steer, never an interruption, and the fast-forward already landed safely.
   A secondmate that was skipped, already current, or whose advance changed no instructions is not listed and must not be disturbed.
 - `FMX: X mode on ...` / `FMX: X mode off ...` - bootstrap confirmed or removed the local X-mode poll artifacts; follow section 14 for watcher cadence restart only when a running watcher needs the transition applied immediately.
+- `FOREMAN_DAEMON_SHIM: <missing|stale|foreign> <detail>` - the state of the firstmate-owned login-PATH `gh` wrapper that makes PRs opened by the no-mistakes pipeline author as the Claude Foreman bot (docs/configuration.md).
+  Treat it like a MISSING tool: report it to the captain with the printed `bin/fm-foreman-gh-shim.sh install` (or `remove` when stale) and run that only on consent; a `foreign` line means a non-wrapper `gh` occupies the path and needs the captain's attention.
 
 Bootstrap's fleet refresh is bounded by `FM_FLEET_SYNC_BOOTSTRAP_TIMEOUT` seconds, default 20; a timeout is reported as a `FLEET_SYNC` skip and does not block startup.
 
@@ -492,6 +495,7 @@ For `kind=secondmate`, the same script launches in the registered or explicit fi
 For ship and scout tasks, the script creates the runtime endpoint (a tmux window by default, or a herdr tab/pane when `backend=herdr`), runs `treehouse get`, waits for the worktree subshell, asserts the resolved worktree is a genuine isolated worktree distinct from the primary checkout (aborting the spawn otherwise, to prevent the worktree tangle of section 8), installs the turn-end hook, records `state/<id>.meta`, and launches the agent with the brief.
 When the opt-in Claude Foreman crew identity is configured (`config/claude-foreman.env` plus `config/claude-foreman.pem`; docs/configuration.md), a crewmate or scout spawn into a project with a github.com origin also mints a per-task installation token scoped to that repository and injects it into the pane environment only - a `gh` PATH shim, `GH_TOKEN`, and `GIT_CONFIG_*` env vars carrying a re-minting git credential helper and the bot author identity - so commits and PRs author as the app bot, with `foreman=` recorded in meta and the token cache plus `gh` shim kept in a private per-task 0700 directory recorded as `foremantmp=` and removed by teardown.
 Renewal is on demand: the credential helper and the `gh` shim re-mint through `bin/fm-foreman-token.sh`'s per-task cache, so tasks longer than the 1h token TTL keep authenticating.
+Pane injection alone cannot cover a `no-mistakes` project's PR, which the no-mistakes daemon opens outside the pane; the captain-consented `bin/fm-foreman-gh-shim.sh` login-PATH wrapper (surfaced by bootstrap as `FOREMAN_DAEMON_SHIM:` lines, section 3) makes those daemon-opened PRs author as the bot too.
 Absent config means a byte-identical spawn; a half-configured setup or failed mint warns and falls back to the current identity, never blocking the spawn; secondmate spawns are exempt.
 For grok, the turn-end hook is one firstmate-owned global hook under `$GROK_HOME/hooks/`, or `~/.grok/hooks/` when `GROK_HOME` is unset, activated only when the worktree holds the per-task `.fm-grok-turnend` token pointer that matches `state/<id>.grok-turnend-token`; teardown removes the pointer and token.
 For `kind=secondmate`, the script creates the same kind of runtime endpoint but starts directly in the persistent home.

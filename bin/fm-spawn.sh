@@ -931,6 +931,37 @@ exec env -u GH_TOKEN -u GITHUB_TOKEN $(shell_quote "$foreman_real_gh") "\$@"
 EOF
           chmod +x "$FOREMAN_TMP/bin/gh"
         fi
+        # Single sourceable pane-environment file. The injection used to send
+        # each export as its own long pane keystroke line, and the ~750-char
+        # GIT_CONFIG_* line was observed truncating in real panes (dropping
+        # GIT_CONFIG_VALUE_4 onward), which breaks every git and gh-axi call
+        # in the task with "missing config value" - crewmates then work around
+        # it by shedding the injected env and their PRs fall back to the
+        # personal identity. Writing the environment here and sourcing it with
+        # one short pane line removes that failure class. The file holds no
+        # token value: GH_TOKEN is minted at source time IN the pane via the
+        # helper, exactly as the old inline line did.
+        foreman_cred_value="!$(shell_quote "$FM_ROOT/bin/fm-foreman-token.sh") credential $(shell_quote "$FOREMAN_SLUG") $(shell_quote "$FOREMAN_CACHE")"
+        if ! {
+          echo "# firstmate Claude Foreman pane environment for task $ID."
+          echo "# Sourced once at spawn; safe to re-source. Holds no token value."
+          if [ -x "$FOREMAN_TMP/bin/gh" ]; then
+            echo "export PATH=$(shell_quote "$FOREMAN_TMP/bin"):\"\$PATH\""
+          fi
+          echo "fm_t=\$($(shell_quote "$FM_ROOT/bin/fm-foreman-token.sh") token $(shell_quote "$FOREMAN_SLUG") $(shell_quote "$FOREMAN_CACHE") 2>/dev/null) && [ -n \"\$fm_t\" ] && export GH_TOKEN=\"\$fm_t\" GITHUB_TOKEN=\"\$fm_t\"; unset fm_t"
+          echo "export GIT_CONFIG_COUNT=6"
+          echo "export GIT_CONFIG_KEY_0=credential.https://github.com.helper GIT_CONFIG_VALUE_0="
+          echo "export GIT_CONFIG_KEY_1=credential.https://github.com.helper GIT_CONFIG_VALUE_1=$(shell_quote "$foreman_cred_value")"
+          echo "export GIT_CONFIG_KEY_2=user.name GIT_CONFIG_VALUE_2=$(shell_quote "$FOREMAN_BOT_NAME")"
+          echo "export GIT_CONFIG_KEY_3=user.email GIT_CONFIG_VALUE_3=$(shell_quote "$FOREMAN_BOT_EMAIL")"
+          echo "export GIT_CONFIG_KEY_4=url.https://github.com/.insteadOf GIT_CONFIG_VALUE_4=git@github.com:"
+          echo "export GIT_CONFIG_KEY_5=url.https://github.com/.insteadOf GIT_CONFIG_VALUE_5=ssh://git@github.com/"
+        } > "$FOREMAN_TMP/env.sh"; then
+          echo "warning: Claude Foreman identity unavailable for $FOREMAN_SLUG (env file write failed); crewmate $ID keeps the default GitHub identity" >&2
+          FOREMAN_ACTIVE=
+          rm -rf "$FOREMAN_TMP"
+          FOREMAN_TMP=
+        fi
       else
         echo "warning: Claude Foreman identity unavailable for $FOREMAN_SLUG; crewmate $ID keeps the default GitHub identity" >&2
         FOREMAN_ACTIVE=
@@ -987,8 +1018,10 @@ if [ "$KIND" = secondmate ]; then
   LAUNCH="FM_ROOT_OVERRIDE= FM_STATE_OVERRIDE= FM_DATA_OVERRIDE= FM_PROJECTS_OVERRIDE= FM_CONFIG_OVERRIDE= FM_HOME=$sq_home $LAUNCH"
 fi
 # Inject the Claude Foreman identity into the crewmate's pane shell before
-# launch. Three pieces, all environment-scoped to this pane (no git config file
-# is touched anywhere):
+# launch by sourcing the per-task env file written above. One short line: long
+# per-export keystroke lines were observed truncating in real panes, breaking
+# git/gh in the task. The file carries the same three pieces as before, all
+# environment-scoped to this pane (no git config file is touched anywhere):
 #   1. PATH shim (when a real gh exists): gh calls re-mint the token on demand.
 #   2. GH_TOKEN/GITHUB_TOKEN: minted via command substitution IN the pane so the
 #      token never appears in scrollback; covers tools that read the env directly.
@@ -996,15 +1029,7 @@ fi
 #      https://github.com, set the bot author identity, and rewrite ssh GitHub
 #      remotes to https so pushes authenticate with the app token.
 if [ -n "$FOREMAN_ACTIVE" ]; then
-  sq_foreman_helper=$(shell_quote "$FM_ROOT/bin/fm-foreman-token.sh")
-  sq_foreman_slug=$(shell_quote "$FOREMAN_SLUG")
-  sq_foreman_cache=$(shell_quote "$FOREMAN_CACHE")
-  if [ -x "$FOREMAN_TMP/bin/gh" ]; then
-    spawn_send_text_line "$T" "export PATH=$(shell_quote "$FOREMAN_TMP/bin"):\"\$PATH\""
-  fi
-  spawn_send_text_line "$T" "fm_t=\$($sq_foreman_helper token $sq_foreman_slug $sq_foreman_cache 2>/dev/null) && [ -n \"\$fm_t\" ] && export GH_TOKEN=\"\$fm_t\" GITHUB_TOKEN=\"\$fm_t\"; unset fm_t"
-  foreman_cred_value="!$sq_foreman_helper credential $sq_foreman_slug $sq_foreman_cache"
-  spawn_send_text_line "$T" "export GIT_CONFIG_COUNT=6 GIT_CONFIG_KEY_0=credential.https://github.com.helper GIT_CONFIG_VALUE_0= GIT_CONFIG_KEY_1=credential.https://github.com.helper GIT_CONFIG_VALUE_1=$(shell_quote "$foreman_cred_value") GIT_CONFIG_KEY_2=user.name GIT_CONFIG_VALUE_2=$(shell_quote "$FOREMAN_BOT_NAME") GIT_CONFIG_KEY_3=user.email GIT_CONFIG_VALUE_3=$(shell_quote "$FOREMAN_BOT_EMAIL") GIT_CONFIG_KEY_4=url.https://github.com/.insteadOf GIT_CONFIG_VALUE_4=git@github.com: GIT_CONFIG_KEY_5=url.https://github.com/.insteadOf GIT_CONFIG_VALUE_5=ssh://git@github.com/"
+  spawn_send_text_line "$T" ". $(shell_quote "$FOREMAN_TMP/env.sh")"
   sleep 0.3
 fi
 
