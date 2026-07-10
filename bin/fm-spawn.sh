@@ -795,17 +795,24 @@ input=$(cat 2>/dev/null || true)
 # JSON, or no jq), fall back to scanning the raw payload so a matching pattern
 # is still caught (fail closed on match).
 cmd=
-if command -v jq >/dev/null 2>&1; then
+parsed=0
+if command -v jq >/dev/null 2>&1 && printf '%s' "$input" | jq -e . >/dev/null 2>&1; then
+  parsed=1
   cmd=$(printf '%s' "$input" | jq -r '.tool_input.command // .tool_input.cmd // empty' 2>/dev/null || true)
 fi
-# Scan the parsed command when jq extracted one; otherwise fall back to the raw
-# payload so a matching pattern is still caught. Token boundaries include
-# whitespace, shell separators, and shell/JSON quote characters so the
-# raw-payload fallback still fails closed when the command is wrapped in quotes.
+# Scan the parsed command when jq extracted one. A cleanly parsed payload with
+# no command field (file edits, writes) is not scanned at all - content that
+# merely mentions a deny pattern must not block the tool. The raw-payload scan
+# is the fallback only for unparseable input or no jq, so a matching pattern is
+# still caught (fail closed on match). Token boundaries include whitespace,
+# shell separators, and shell/JSON quote characters so the raw-payload fallback
+# still fails closed when the command is wrapped in quotes.
 if [ -n "$cmd" ]; then
   scan=$(printf '%s' "$cmd" | tr '\n' ' ')
-else
+elif [ "$parsed" -eq 0 ]; then
   scan=$(printf '%s' "$input" | tr '\n' ' ')
+else
+  exit 0
 fi
 E='([[:space:];&|()"'\''\\]|$)'         # trailing boundary
 LB='(^|[[:space:];&|()"'\''\\:=])'      # leading boundary (start, or a boundary/colon char)
@@ -831,7 +838,7 @@ fi
 exit 0
 DENY
       chmod +x "$WT/.devin/fm-merge-deny.sh"
-      deny_cmd=$(json_escape "$WT/.devin/fm-merge-deny.sh")
+      deny_cmd=$(json_escape "$(shell_quote "$WT/.devin/fm-merge-deny.sh")")
       cat > "$WT/.devin/hooks.v1.json" <<EOF
 {"Stop":[{"hooks":[{"type":"command","command":"touch '$TURNEND'"}]}],"PreToolUse":[{"hooks":[{"type":"command","command":"$deny_cmd"}]}]}
 EOF

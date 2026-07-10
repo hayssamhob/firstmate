@@ -201,8 +201,8 @@ For every non-secondmate devin spawn (all models), `fm-spawn.sh` also installs a
 Devin fires `PreToolUse` with a Claude-Code-shaped stdin JSON (`{tool_name, tool_input:{command}}`) and treats a non-zero guard exit as a tool rejection with the guard's stderr fed back to the model (verified live: exit 2 blocks the `exec` tool before the command runs).
 The guard deterministically BLOCKS, regardless of what the model decides, four command shapes: `gh pr merge` (any form), `gh api` calls whose path contains `/merge`, `gh pr review --approve`, and `git push` targeting `main`/`master` on any remote (including `HEAD:main` forms).
 This enforces the rule that crewmates never merge or push to the default branch (that is firstmate's call) even if a prompt or the model tries.
-The guard fails OPEN for non-matching commands (including malformed stdin) and CLOSED when a deny pattern matches (it scans both the jq-parsed command and the raw payload).
-Subagents inherit the same worktree hooks: a delegated `run_subagent` whose task text contains a deny pattern is itself blocked (verified), and a spawned subagent's own `exec` calls pass through the same guard.
+The guard fails OPEN for non-matching commands (including malformed stdin) and CLOSED when a deny pattern matches: it scans the jq-parsed command, falls back to scanning the raw payload only when the input cannot be parsed as JSON or jq is missing, and skips a cleanly parsed payload with no command field (file edits and writes whose content merely mentions a deny pattern are not blocked).
+Subagents inherit the same worktree hooks: a spawned subagent's own `exec` calls pass through the same guard, so delegation cannot bypass the deny rules.
 Secondmate spawns do NOT get this hook (secondmates are firstmates and legitimately merge); the deny block sits inside the non-secondmate `KIND` guard.
 
 Devin renders its composer placeholder text ("Ask Devin to build features, fix bugs, or work on your code" when idle, "Guide Devin while it works" when busy) using a dark 24-bit RGB color (`ESC[38;2;124;124;124m`), NOT the SGR 2 dim/faint attribute that claude uses for its ghost text.
