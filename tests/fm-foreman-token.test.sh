@@ -125,7 +125,10 @@ test_token_mints_scoped_and_caches_0600() {
   assert_grep '"contents":"write"' "$curl_log" "mint body should request contents:write"
   assert_grep '"pull_requests":"write"' "$curl_log" "mint body should request pull_requests:write"
   assert_present "$cache" "mint should write the cache file"
-  perms=$(stat -f '%Lp' "$cache" 2>/dev/null || stat -c '%a' "$cache")
+  # GNU stat first (-c; Linux CI), BSD stat fallback (-f; macOS). The BSD form
+  # must not run first: on GNU, -f means filesystem status and succeeds with
+  # the wrong output instead of failing over.
+  perms=$(stat -c '%a' "$cache" 2>/dev/null || stat -f '%Lp' "$cache")
   [ "$perms" = "600" ] || fail "cache file should be mode 600, got $perms"
 
   # Second call serves the cache: no new curl invocation.
