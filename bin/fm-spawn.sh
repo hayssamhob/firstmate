@@ -926,7 +926,7 @@ t=\$($(shell_quote "$FM_ROOT/bin/fm-foreman-token.sh") token $(shell_quote "$FOR
 if [ -n "\$t" ]; then
   GH_TOKEN=\$t GITHUB_TOKEN=\$t exec $(shell_quote "$foreman_real_gh") "\$@"
 fi
-exec $(shell_quote "$foreman_real_gh") "\$@"
+exec env -u GH_TOKEN -u GITHUB_TOKEN $(shell_quote "$foreman_real_gh") "\$@"
 EOF
           chmod +x "$TASK_TMP/bin/gh"
         fi

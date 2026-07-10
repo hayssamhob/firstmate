@@ -131,7 +131,7 @@ mint() {
 # re-mint and rewrite the 0600 cache. The cache records the mint epoch rather
 # than parsing GitHub's expires_at, so freshness needs no date parsing.
 cached_token() {
-  local slug=$1 cache=$2 now minted cached_slug token old_umask
+  local slug=$1 cache=$2 now minted cached_slug token old_umask tmp
   now=$(date +%s)
   if [ -f "$cache" ]; then
     minted=$(jq -r '.minted // 0' "$cache" 2>/dev/null || echo 0)
@@ -145,8 +145,13 @@ cached_token() {
   token=$(mint "$slug") || return 1
   old_umask=$(umask)
   umask 077
-  jq -cn --arg token "$token" --arg repo "$slug" --argjson minted "$now" \
-    '{token: $token, repo: $repo, minted: $minted}' > "$cache"
+  tmp=$(mktemp "$(dirname "$cache")/$(basename "$cache").XXXXXX") || { umask "$old_umask"; return 1; }
+  if jq -cn --arg token "$token" --arg repo "$slug" --argjson minted "$now" \
+    '{token: $token, repo: $repo, minted: $minted}' > "$tmp"; then
+    mv -f "$tmp" "$cache"
+  else
+    rm -f "$tmp"
+  fi
   umask "$old_umask"
   printf '%s\n' "$token"
 }
