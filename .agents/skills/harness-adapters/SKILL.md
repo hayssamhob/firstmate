@@ -189,9 +189,21 @@ Secondmate spawns skip the pointer (idle panes are healthy, no stale-pane detect
 | Skill invocation | `/<skill>` (e.g. `/no-mistakes`), same form as claude |
 
 No trust dialog on first run.
+
+`--model <MODEL>` selects the model (verified; e.g. `--model glm-5.2`, `--model opus`, `--model codex`), so `model_flag_for_harness` includes `devin` and the launch template carries `__MODELFLAG__`.
+There is no verified reasoning-effort flag, so effort is not passed for devin.
+
 Devin reads Claude Code-compatible hooks from `.devin/hooks.v1.json`, where the hooks object IS the entire file (no `"hooks"` wrapper key, unlike settings files).
 The `Stop` event fires at every turn boundary, which is the signal the watcher needs.
 `fm-spawn.sh` writes this hook file into the worktree and excludes it from git.
+
+For every non-secondmate devin spawn (all models), `fm-spawn.sh` also installs a `PreToolUse` merge-deny hook: a POSIX-sh guard at `.devin/fm-merge-deny.sh` (also git-excluded) wired as the hook's command.
+Devin fires `PreToolUse` with a Claude-Code-shaped stdin JSON (`{tool_name, tool_input:{command}}`) and treats a non-zero guard exit as a tool rejection with the guard's stderr fed back to the model (verified live: exit 2 blocks the `exec` tool before the command runs).
+The guard deterministically BLOCKS, regardless of what the model decides, four command shapes: `gh pr merge` (any form), `gh api` calls whose path contains `/merge`, `gh pr review --approve`, and `git push` targeting `main`/`master` on any remote (including `HEAD:main` forms).
+This enforces the rule that crewmates never merge or push to the default branch (that is firstmate's call) even if a prompt or the model tries.
+The guard fails OPEN for non-matching commands (including malformed stdin) and CLOSED when a deny pattern matches (it scans both the jq-parsed command and the raw payload).
+Subagents inherit the same worktree hooks: a delegated `run_subagent` whose task text contains a deny pattern is itself blocked (verified), and a spawned subagent's own `exec` calls pass through the same guard.
+Secondmate spawns do NOT get this hook (secondmates are firstmates and legitimately merge); the deny block sits inside the non-secondmate `KIND` guard.
 
 Devin renders its composer placeholder text ("Ask Devin to build features, fix bugs, or work on your code" when idle, "Guide Devin while it works" when busy) using a dark 24-bit RGB color (`ESC[38;2;124;124;124m`), NOT the SGR 2 dim/faint attribute that claude uses for its ghost text.
 The dim-aware ghost stripper in `fm-tmux-lib.sh` only drops SGR 2 runs, so it cannot catch devin's placeholder.

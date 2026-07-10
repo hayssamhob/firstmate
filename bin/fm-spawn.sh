@@ -261,7 +261,7 @@ launch_template() {
     # signal rides a Stop hook in .devin/hooks.v1.json (Claude Code hook format,
     # which devin reads natively), wired below - not via the launch command, so
     # the same template serves ship, scout, and secondmate spawns.
-    devin) printf '%s' 'devin --prompt-file __BRIEF__ --permission-mode dangerous' ;;
+    devin) printf '%s' 'devin --prompt-file __BRIEF__ __MODELFLAG__--permission-mode dangerous' ;;
     *) return 1 ;;
   esac
 }
@@ -349,7 +349,7 @@ model_flag_for_harness() {
   local harness=$1 model=$2
   [ -n "$model" ] && [ "$model" != default ] || return 0
   case "$harness" in
-    claude|codex|opencode|pi|grok)
+    claude|codex|opencode|pi|grok|devin)
       printf -- '--model %s ' "$(shell_quote "$model")"
       ;;
   esac
@@ -770,11 +770,68 @@ EOF
       # the hooks object IS the entire file (no "hooks" wrapper key, unlike
       # settings files). The Stop event fires at every turn boundary - exactly
       # the signal the watcher needs to surface an idle crewmate.
+      #
+      # A PreToolUse hook deterministically BLOCKS merge-capable and main/master
+      # push commands (gh pr merge, gh api .../merge, gh pr review --approve, and
+      # git push to main/master) before they run, regardless of what the model
+      # decides - crewmates never merge or push to the default branch (that is
+      # firstmate's call). devin fires PreToolUse with a Claude-Code-shaped stdin
+      # JSON ({tool_name, tool_input:{command}}) and treats a non-zero guard exit
+      # as a tool rejection with the guard's stderr fed back to the model
+      # (verified live: exit 2 blocks the exec before execution, subagents
+      # inherit the same worktree hooks). This block runs only for non-secondmate
+      # spawns (the enclosing KIND guard), so secondmates - which are firstmates
+      # and legitimately merge - never get the deny hook.
       mkdir -p "$WT/.devin"
+      cat > "$WT/.devin/fm-merge-deny.sh" <<'DENY'
+#!/bin/sh
+# firstmate crewmate merge-deny guard (PreToolUse). Blocks merge-capable and
+# main/master-push commands before they run. Fails OPEN for non-matching
+# commands (including malformed input), CLOSED when a deny pattern matches.
+set -u
+input=$(cat 2>/dev/null || true)
+
+# Extract the tool command. Prefer a clean jq parse; if that fails (malformed
+# JSON, or no jq), fall back to scanning the raw payload so a matching pattern
+# is still caught (fail closed on match).
+cmd=
+if command -v jq >/dev/null 2>&1; then
+  cmd=$(printf '%s' "$input" | jq -r '.tool_input.command // .tool_input.cmd // empty' 2>/dev/null || true)
+fi
+# Scan the parsed command and the raw payload together. Token boundaries include
+# whitespace and shell/JSON quote characters so the raw-payload fallback still
+# fails closed when the command is wrapped in quotes.
+scan=$(printf '%s\n%s' "$cmd" "$input" | tr '\n' ' ')
+E='([[:space:]"'\''\\]|$)'          # trailing boundary
+LB='(^|[[:space:]"'\''\\:])'        # leading boundary (start, or a boundary/colon char)
+
+blocked=0
+# gh pr merge (any form)
+printf '%s' "$scan" | grep -Eq "gh[[:space:]]+pr[[:space:]]+merge$E" && blocked=1
+# gh api ... path containing /merge
+printf '%s' "$scan" | grep -Eq "gh[[:space:]]+api$E" \
+  && printf '%s' "$scan" | grep -Eq '/merge' && blocked=1
+# gh pr review --approve
+printf '%s' "$scan" | grep -Eq "gh[[:space:]]+pr[[:space:]]+review$E" \
+  && printf '%s' "$scan" | grep -Eq -- "--approve([[:space:]\"'\\=]|\$)" && blocked=1
+# git push targeting main/master on any remote (incl. HEAD:main / :refs/heads/main)
+if printf '%s' "$scan" | grep -Eq "git[[:space:]]+push$E"; then
+  printf '%s' "$scan" | grep -Eq "$LB(\\+)?(refs/heads/)?(main|master)$E" && blocked=1
+fi
+
+if [ "$blocked" -eq 1 ]; then
+  echo "BLOCKED by firstmate policy: crewmates never merge or push to main; report done and stop." >&2
+  exit 2
+fi
+exit 0
+DENY
+      chmod +x "$WT/.devin/fm-merge-deny.sh"
+      deny_cmd=$(json_escape "$WT/.devin/fm-merge-deny.sh")
       cat > "$WT/.devin/hooks.v1.json" <<EOF
-{"Stop":[{"hooks":[{"type":"command","command":"touch '$TURNEND'"}]}]}
+{"Stop":[{"hooks":[{"type":"command","command":"touch '$TURNEND'"}]}],"PreToolUse":[{"hooks":[{"type":"command","command":"$deny_cmd"}]}]}
 EOF
       exclude_path '.devin/hooks.v1.json'
+      exclude_path '.devin/fm-merge-deny.sh'
       ;;
   esac
 fi
