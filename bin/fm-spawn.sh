@@ -888,6 +888,7 @@ FOREMAN_BOT_NAME=
 FOREMAN_BOT_EMAIL=
 FOREMAN_CACHE=
 FOREMAN_SLUG=
+FOREMAN_TMP=
 if [ "$KIND" != secondmate ]; then
   foreman_rc=0
   "$FM_ROOT/bin/fm-foreman-token.sh" configured || foreman_rc=$?
@@ -907,8 +908,8 @@ if [ "$KIND" != secondmate ]; then
       */*) : ;;
       *) FOREMAN_SLUG= ;;
     esac
-    if [ -n "$FOREMAN_SLUG" ]; then
-      FOREMAN_CACHE="$TASK_TMP/foreman-token.json"
+    if [ -n "$FOREMAN_SLUG" ] && FOREMAN_TMP=$(mktemp -d "${TMPDIR:-/tmp}/fm-foreman-$ID.XXXXXX"); then
+      FOREMAN_CACHE="$FOREMAN_TMP/foreman-token.json"
       if "$FM_ROOT/bin/fm-foreman-token.sh" token "$FOREMAN_SLUG" "$FOREMAN_CACHE" >/dev/null \
         && foreman_identity=$("$FM_ROOT/bin/fm-foreman-token.sh" bot-identity); then
         FOREMAN_BOT_NAME=$(printf '%s\n' "$foreman_identity" | sed -n 1p)
@@ -918,8 +919,8 @@ if [ "$KIND" != secondmate ]; then
         # still authenticate as the bot. Written only when a real gh exists.
         foreman_real_gh=$(command -v gh 2>/dev/null || true)
         if [ -n "$foreman_real_gh" ]; then
-          mkdir -p "$TASK_TMP/bin"
-          cat > "$TASK_TMP/bin/gh" <<EOF
+          mkdir -p "$FOREMAN_TMP/bin"
+          cat > "$FOREMAN_TMP/bin/gh" <<EOF
 #!/bin/sh
 # firstmate Claude Foreman gh shim: refresh the app installation token per call.
 t=\$($(shell_quote "$FM_ROOT/bin/fm-foreman-token.sh") token $(shell_quote "$FOREMAN_SLUG") $(shell_quote "$FOREMAN_CACHE") 2>/dev/null) || t=
@@ -928,15 +929,15 @@ if [ -n "\$t" ]; then
 fi
 exec env -u GH_TOKEN -u GITHUB_TOKEN $(shell_quote "$foreman_real_gh") "\$@"
 EOF
-          chmod +x "$TASK_TMP/bin/gh"
+          chmod +x "$FOREMAN_TMP/bin/gh"
         fi
       else
         echo "warning: Claude Foreman identity unavailable for $FOREMAN_SLUG; crewmate $ID keeps the default GitHub identity" >&2
         FOREMAN_ACTIVE=
+        rm -rf "$FOREMAN_TMP"
+        FOREMAN_TMP=
       fi
     fi
-  elif [ "$foreman_rc" -ne 3 ]; then
-    echo "warning: Claude Foreman config incomplete; crewmate $ID keeps the default GitHub identity" >&2
   fi
 fi
 
@@ -968,6 +969,7 @@ fi
   # foreman= is written only when the Claude Foreman identity was injected, so
   # the default path's meta stays byte-identical.
   [ -z "$FOREMAN_ACTIVE" ] || echo "foreman=$FOREMAN_BOT_NAME"
+  [ -z "$FOREMAN_TMP" ] || echo "foremantmp=$FOREMAN_TMP"
 } > "$STATE/$ID.meta"
 
 sq_brief=$(shell_quote "$BRIEF")
@@ -997,8 +999,8 @@ if [ -n "$FOREMAN_ACTIVE" ]; then
   sq_foreman_helper=$(shell_quote "$FM_ROOT/bin/fm-foreman-token.sh")
   sq_foreman_slug=$(shell_quote "$FOREMAN_SLUG")
   sq_foreman_cache=$(shell_quote "$FOREMAN_CACHE")
-  if [ -x "$TASK_TMP/bin/gh" ]; then
-    spawn_send_text_line "$T" "export PATH=$(shell_quote "$TASK_TMP/bin"):\"\$PATH\""
+  if [ -x "$FOREMAN_TMP/bin/gh" ]; then
+    spawn_send_text_line "$T" "export PATH=$(shell_quote "$FOREMAN_TMP/bin"):\"\$PATH\""
   fi
   spawn_send_text_line "$T" "fm_t=\$($sq_foreman_helper token $sq_foreman_slug $sq_foreman_cache 2>/dev/null) && [ -n \"\$fm_t\" ] && export GH_TOKEN=\"\$fm_t\" GITHUB_TOKEN=\"\$fm_t\"; unset fm_t"
   foreman_cred_value="!$sq_foreman_helper credential $sq_foreman_slug $sq_foreman_cache"

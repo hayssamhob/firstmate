@@ -151,7 +151,7 @@ test_no_config_is_zero_behavior_change() {
 }
 
 test_configured_spawn_injects_identity() {
-  local rec id out status launch
+  local rec id out status launch foreman_tmp foreman_tmp_mode
   id=foreman-on-z1
   register_task_tmp "$id"
   rec=$(make_spawn_case foreman-on "$id" "git@github.com:owner/repo.git")
@@ -160,8 +160,16 @@ test_configured_spawn_injects_identity() {
   out=$(run_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR")
   status=$?
   expect_code 0 "$status" "configured foreman spawn should succeed"
+  foreman_tmp=$(grep '^foremantmp=' "$HOME_DIR/state/$id.meta" | cut -d= -f2-)
+  [ -n "$foreman_tmp" ] || fail "meta should record foremantmp= for the private foreman dir"
+  FM_TEST_CLEANUP_DIRS+=("$foreman_tmp")
+  case "$foreman_tmp" in
+    /tmp/fm-$id|/tmp/fm-$id/*) fail "foreman dir must live outside the shared task temp root" ;;
+  esac
+  foreman_tmp_mode=$(stat -c '%a' "$foreman_tmp" 2>/dev/null || stat -f '%Lp' "$foreman_tmp")
+  [ "$foreman_tmp_mode" = 700 ] || fail "foreman dir should be private (0700), got $foreman_tmp_mode"
   launch=$(cat "$LAUNCH_LOG")
-  assert_contains "$launch" "token 'owner/repo' '/tmp/fm-$id/foreman-token.json'" "pane should mint GH_TOKEN via the helper"
+  assert_contains "$launch" "token 'owner/repo' '$foreman_tmp/foreman-token.json'" "pane should mint GH_TOKEN via the helper"
   assert_contains "$launch" "export GH_TOKEN=" "pane should export GH_TOKEN"
   assert_contains "$launch" "GIT_CONFIG_COUNT=6" "pane should get the git env config block"
   assert_contains "$launch" "credential.https://github.com.helper" "git env config should install the credential helper"
@@ -170,9 +178,9 @@ test_configured_spawn_injects_identity() {
   assert_contains "$launch" "GIT_CONFIG_VALUE_2='claude-foreman[bot]'" "git author name should be the bot login"
   assert_contains "$launch" "424242+claude-foreman[bot]@users.noreply.github.com" "git author email should be the id-linked noreply address"
   assert_contains "$launch" "url.https://github.com/.insteadOf" "ssh remotes should be rewritten to https"
-  assert_contains "$launch" "export PATH='/tmp/fm-$id/bin'" "pane PATH should get the gh shim dir"
-  assert_present "/tmp/fm-$id/bin/gh" "gh shim should be written into the task temp root"
-  assert_grep "fm-foreman-token.sh' token 'owner/repo'" "/tmp/fm-$id/bin/gh" "gh shim should re-mint via the token helper"
+  assert_contains "$launch" "export PATH='$foreman_tmp/bin'" "pane PATH should get the gh shim dir"
+  assert_present "$foreman_tmp/bin/gh" "gh shim should be written into the private foreman dir"
+  assert_grep "fm-foreman-token.sh' token 'owner/repo'" "$foreman_tmp/bin/gh" "gh shim should re-mint via the token helper"
   assert_grep "foreman=claude-foreman[bot]" "$HOME_DIR/state/$id.meta" "meta should record the injected foreman identity"
   # The token itself must never be echoed into the pane.
   assert_not_contains "$launch" "ghs_faketoken123" "raw token must not appear in pane input"
@@ -194,6 +202,7 @@ test_mint_failure_warns_and_falls_back() {
   launch=$(cat "$LAUNCH_LOG")
   assert_not_contains "$launch" "GIT_CONFIG_COUNT" "failed mint must not inject git env config"
   assert_no_grep "foreman=" "$HOME_DIR/state/$id.meta" "failed mint must not record foreman= in meta"
+  assert_no_grep "foremantmp=" "$HOME_DIR/state/$id.meta" "failed mint must not leave a foremantmp= dir recorded"
   pass "mint failure warns and falls back to the default identity"
 }
 
