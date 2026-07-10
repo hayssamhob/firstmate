@@ -798,12 +798,17 @@ cmd=
 if command -v jq >/dev/null 2>&1; then
   cmd=$(printf '%s' "$input" | jq -r '.tool_input.command // .tool_input.cmd // empty' 2>/dev/null || true)
 fi
-# Scan the parsed command and the raw payload together. Token boundaries include
-# whitespace and shell/JSON quote characters so the raw-payload fallback still
-# fails closed when the command is wrapped in quotes.
-scan=$(printf '%s\n%s' "$cmd" "$input" | tr '\n' ' ')
-E='([[:space:]"'\''\\]|$)'          # trailing boundary
-LB='(^|[[:space:]"'\''\\:])'        # leading boundary (start, or a boundary/colon char)
+# Scan the parsed command when jq extracted one; otherwise fall back to the raw
+# payload so a matching pattern is still caught. Token boundaries include
+# whitespace, shell separators, and shell/JSON quote characters so the
+# raw-payload fallback still fails closed when the command is wrapped in quotes.
+if [ -n "$cmd" ]; then
+  scan=$(printf '%s' "$cmd" | tr '\n' ' ')
+else
+  scan=$(printf '%s' "$input" | tr '\n' ' ')
+fi
+E='([[:space:];&|()"'\''\\]|$)'         # trailing boundary
+LB='(^|[[:space:];&|()"'\''\\:=])'      # leading boundary (start, or a boundary/colon char)
 
 blocked=0
 # gh pr merge (any form)
@@ -813,7 +818,7 @@ printf '%s' "$scan" | grep -Eq "gh[[:space:]]+api$E" \
   && printf '%s' "$scan" | grep -Eq '/merge' && blocked=1
 # gh pr review --approve
 printf '%s' "$scan" | grep -Eq "gh[[:space:]]+pr[[:space:]]+review$E" \
-  && printf '%s' "$scan" | grep -Eq -- "--approve([[:space:]\"'\\=]|\$)" && blocked=1
+  && printf '%s' "$scan" | grep -Eq -- "--approve([[:space:];&|()\"'\\=]|\$)" && blocked=1
 # git push targeting main/master on any remote (incl. HEAD:main / :refs/heads/main)
 if printf '%s' "$scan" | grep -Eq "git[[:space:]]+push$E"; then
   printf '%s' "$scan" | grep -Eq "$LB(\\+)?(refs/heads/)?(main|master)$E" && blocked=1
