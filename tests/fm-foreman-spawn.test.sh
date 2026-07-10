@@ -146,6 +146,7 @@ test_no_config_is_zero_behavior_change() {
   launch=$(cat "$LAUNCH_LOG")
   assert_not_contains "$launch" "GIT_CONFIG_COUNT" "no-config spawn must not inject git env config"
   assert_not_contains "$launch" "GH_TOKEN" "no-config spawn must not inject GH_TOKEN"
+  assert_not_contains "$launch" "env.sh" "no-config spawn must not source a foreman env file"
   assert_no_grep "foreman=" "$HOME_DIR/state/$id.meta" "no-config spawn must not record foreman= in meta"
   pass "absent foreman config is a silent zero-behavior-change spawn"
 }
@@ -169,22 +170,30 @@ test_configured_spawn_injects_identity() {
   foreman_tmp_mode=$(stat -c '%a' "$foreman_tmp" 2>/dev/null || stat -f '%Lp' "$foreman_tmp")
   [ "$foreman_tmp_mode" = 700 ] || fail "foreman dir should be private (0700), got $foreman_tmp_mode"
   launch=$(cat "$LAUNCH_LOG")
-  assert_contains "$launch" "token 'owner/repo' '$foreman_tmp/foreman-token.json'" "pane should mint GH_TOKEN via the helper"
-  assert_contains "$launch" "export GH_TOKEN=" "pane should export GH_TOKEN"
-  assert_contains "$launch" "GIT_CONFIG_COUNT=6" "pane should get the git env config block"
-  assert_contains "$launch" "credential.https://github.com.helper" "git env config should install the credential helper"
-  assert_contains "$launch" "GIT_CONFIG_VALUE_1='!'" "credential helper value should be a shell-command helper"
-  assert_contains "$launch" "fm-foreman-token.sh" "credential helper should route through the token helper"
-  assert_contains "$launch" "GIT_CONFIG_VALUE_2='claude-foreman[bot]'" "git author name should be the bot login"
-  assert_contains "$launch" "424242+claude-foreman[bot]@users.noreply.github.com" "git author email should be the id-linked noreply address"
-  assert_contains "$launch" "url.https://github.com/.insteadOf" "ssh remotes should be rewritten to https"
-  assert_contains "$launch" "export PATH='$foreman_tmp/bin'" "pane PATH should get the gh shim dir"
+  # The pane receives ONE short source line; the long export lines live in the
+  # env file (long pane keystroke lines were observed truncating in real
+  # panes, breaking git/gh in the task).
+  assert_contains "$launch" ". '$foreman_tmp/env.sh'" "pane should source the per-task foreman env file"
+  assert_not_contains "$launch" "GIT_CONFIG_COUNT" "the long git env config block must not be sent as pane keystrokes"
+  assert_present "$foreman_tmp/env.sh" "foreman env file should be written into the private foreman dir"
+  envsh=$(cat "$foreman_tmp/env.sh")
+  assert_contains "$envsh" "token 'owner/repo' '$foreman_tmp/foreman-token.json'" "env file should mint GH_TOKEN via the helper at source time"
+  assert_contains "$envsh" "export GH_TOKEN=" "env file should export GH_TOKEN"
+  assert_contains "$envsh" "GIT_CONFIG_COUNT=6" "env file should carry the git env config block"
+  assert_contains "$envsh" "credential.https://github.com.helper" "env file should install the credential helper"
+  assert_contains "$envsh" "GIT_CONFIG_VALUE_1='!'" "credential helper value should be a shell-command helper"
+  assert_contains "$envsh" "fm-foreman-token.sh" "credential helper should route through the token helper"
+  assert_contains "$envsh" "GIT_CONFIG_VALUE_2='claude-foreman[bot]'" "git author name should be the bot login"
+  assert_contains "$envsh" "424242+claude-foreman[bot]@users.noreply.github.com" "git author email should be the id-linked noreply address"
+  assert_contains "$envsh" "url.https://github.com/.insteadOf" "ssh remotes should be rewritten to https"
+  assert_contains "$envsh" "export PATH='$foreman_tmp/bin'" "env file should prepend the gh shim dir to PATH"
   assert_present "$foreman_tmp/bin/gh" "gh shim should be written into the private foreman dir"
   assert_grep "fm-foreman-token.sh' token 'owner/repo'" "$foreman_tmp/bin/gh" "gh shim should re-mint via the token helper"
   assert_grep "foreman=claude-foreman[bot]" "$HOME_DIR/state/$id.meta" "meta should record the injected foreman identity"
-  # The token itself must never be echoed into the pane.
+  # The token itself must never be echoed into the pane or written to the env file.
   assert_not_contains "$launch" "ghs_faketoken123" "raw token must not appear in pane input"
-  pass "configured spawn injects the foreman identity into the pane environment"
+  assert_not_contains "$envsh" "ghs_faketoken123" "raw token must not appear in the env file"
+  pass "configured spawn injects the foreman identity via a sourced env file"
 }
 
 test_mint_failure_warns_and_falls_back() {
@@ -201,6 +210,7 @@ test_mint_failure_warns_and_falls_back() {
   assert_contains "$out" "spawned $id" "spawn should still complete after mint failure"
   launch=$(cat "$LAUNCH_LOG")
   assert_not_contains "$launch" "GIT_CONFIG_COUNT" "failed mint must not inject git env config"
+  assert_not_contains "$launch" "env.sh" "failed mint must not source a foreman env file"
   assert_no_grep "foreman=" "$HOME_DIR/state/$id.meta" "failed mint must not record foreman= in meta"
   assert_no_grep "foremantmp=" "$HOME_DIR/state/$id.meta" "failed mint must not leave a foremantmp= dir recorded"
   pass "mint failure warns and falls back to the default identity"
@@ -219,6 +229,7 @@ test_non_github_origin_skips() {
   assert_not_contains "$out" "Claude Foreman" "non-GitHub origin should skip silently"
   launch=$(cat "$LAUNCH_LOG")
   assert_not_contains "$launch" "GIT_CONFIG_COUNT" "non-GitHub origin must not inject git env config"
+  assert_not_contains "$launch" "env.sh" "non-GitHub origin must not source a foreman env file"
   pass "non-GitHub origins skip foreman injection silently"
 }
 
@@ -239,6 +250,7 @@ test_secondmate_spawn_is_exempt() {
   launch=$(cat "$LAUNCH_LOG")
   assert_not_contains "$launch" "GIT_CONFIG_COUNT" "secondmate spawn must not inject git env config"
   assert_not_contains "$launch" "GH_TOKEN" "secondmate spawn must not inject GH_TOKEN"
+  assert_not_contains "$launch" "env.sh" "secondmate spawn must not source a foreman env file"
   assert_no_grep "foreman=" "$HOME_DIR/state/$id.meta" "secondmate meta must not record foreman="
   pass "secondmate spawns are exempt from foreman injection"
 }
