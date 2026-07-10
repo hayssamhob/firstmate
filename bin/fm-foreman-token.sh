@@ -114,7 +114,10 @@ mint() {
   jwt="$signing_input.$sig"
   body=$(jq -cn --arg repo "$repo" \
     '{repositories: [$repo], permissions: {contents: "write", pull_requests: "write"}}')
-  response=$(curl -fsS -X POST \
+  # Bounded timeouts: fm-spawn calls this synchronously at spawn time, so a
+  # stalled GitHub API must degrade to the warn-and-fallback path, never hang
+  # the spawn.
+  response=$(curl -fsS --connect-timeout 5 --max-time 30 -X POST \
     -H "Authorization: Bearer $jwt" \
     -H "Accept: application/vnd.github+json" \
     -d "$body" \
@@ -135,6 +138,9 @@ cached_token() {
   now=$(date +%s)
   if [ -f "$cache" ]; then
     minted=$(jq -r '.minted // 0' "$cache" 2>/dev/null || echo 0)
+    # A corrupted cache must degrade to a re-mint, not an arithmetic error
+    # under set -e.
+    case "$minted" in *[!0-9]*|'') minted=0 ;; esac
     cached_slug=$(jq -r '.repo // empty' "$cache" 2>/dev/null || true)
     token=$(jq -r '.token // empty' "$cache" 2>/dev/null || true)
     if [ -n "$token" ] && [ "$cached_slug" = "$slug" ] && [ $((now - minted)) -lt "$CACHE_SECS" ]; then
@@ -168,7 +174,7 @@ bot_identity() {
   case "$bot_id" in *[!0-9]*|'') bot_id= ;; esac
   if [ -z "$bot_id" ]; then
     encoded="${FM_FOREMAN_APP_SLUG}%5Bbot%5D"
-    bot_id=$(curl -fsS -H "Accept: application/vnd.github+json" "$API/users/$encoded" 2>/dev/null | jq -r '.id // empty' || true)
+    bot_id=$(curl -fsS --connect-timeout 5 --max-time 30 -H "Accept: application/vnd.github+json" "$API/users/$encoded" 2>/dev/null | jq -r '.id // empty' || true)
     case "$bot_id" in *[!0-9]*|'') bot_id= ;; esac
     if [ -n "$bot_id" ]; then
       old_umask=$(umask)
