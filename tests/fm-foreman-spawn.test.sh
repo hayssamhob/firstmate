@@ -164,7 +164,7 @@ test_configured_spawn_injects_identity() {
   [ -n "$foreman_tmp" ] || fail "meta should record foremantmp= for the private foreman dir"
   FM_TEST_CLEANUP_DIRS+=("$foreman_tmp")
   case "$foreman_tmp" in
-    /tmp/fm-$id|/tmp/fm-$id/*) fail "foreman dir must live outside the shared task temp root" ;;
+    "/tmp/fm-$id" | "/tmp/fm-$id"/*) fail "foreman dir must live outside the shared task temp root" ;;
   esac
   foreman_tmp_mode=$(stat -c '%a' "$foreman_tmp" 2>/dev/null || stat -f '%Lp' "$foreman_tmp")
   [ "$foreman_tmp_mode" = 700 ] || fail "foreman dir should be private (0700), got $foreman_tmp_mode"
