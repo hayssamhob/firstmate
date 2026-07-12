@@ -198,12 +198,26 @@ The `Stop` event fires at every turn boundary, which is the signal the watcher n
 `fm-spawn.sh` writes this hook file into the worktree and excludes it from git.
 
 For every non-secondmate devin spawn (all models), `fm-spawn.sh` also installs a `PreToolUse` merge-deny hook: a POSIX-sh guard at `.devin/fm-merge-deny.sh` (also git-excluded) wired as the hook's command.
-Devin fires `PreToolUse` with a Claude-Code-shaped stdin JSON (`{tool_name, tool_input:{command}}`) and treats a non-zero guard exit as a tool rejection with the guard's stderr fed back to the model (verified live: exit 2 blocks the `exec` tool before the command runs).
-The guard deterministically BLOCKS, regardless of what the model decides, four command shapes: `gh pr merge` (any form), `gh api` calls whose path contains `/merge`, `gh pr review --approve`, and `git push` targeting `main`/`master` on any remote (including `HEAD:main` forms).
+Devin fires `PreToolUse` with a Claude-Code-shaped stdin JSON (`{tool_name, tool_input:{command}}`) and treats a non-zero guard exit as a tool rejection with the guard's stderr fed back to the model (exit 2 blocks the `exec` tool before the command runs).
+The guard BLOCKS four command shapes: `gh pr merge` (any form), `gh api` calls whose path contains `/merge`, `gh pr review --approve`, and `git push` targeting `main`/`master` on any remote (including `HEAD:main` forms).
 This enforces the rule that crewmates never merge or push to the default branch (that is firstmate's call) even if a prompt or the model tries.
 The guard fails OPEN for non-matching commands (including malformed stdin) and CLOSED when a deny pattern matches: it scans the jq-parsed command, falls back to scanning the raw payload only when the input cannot be parsed as JSON or jq is missing, and skips a cleanly parsed payload with no command field (file edits and writes whose content merely mentions a deny pattern are not blocked).
-Subagents inherit the same worktree hooks: a spawned subagent's own `exec` calls pass through the same guard, so delegation cannot bypass the deny rules.
+Subagents inherit the same worktree hooks: a spawned subagent's own `exec` calls pass through the same guard (re-verified live on devin 3000.1.27), so delegation cannot bypass the deny rules; the outer `run_subagent` delegation call, which carries no command field, correctly passes.
 Secondmate spawns do NOT get this hook (secondmates are firstmates and legitimately merge); the deny block sits inside the non-secondmate `KIND` guard.
+
+**The `PreToolUse` hook is NOT a hard boundary; treat it as one layer, not a guarantee.**
+On 2026-07-12 a devin 3000.1.27 crewmate ran `gh pr merge` in its primary loop and it SUCCEEDED even though this hook and guard were present and correct (the exact captured payload piped into the guard by hand still exited 2).
+Live re-testing on 3000.1.27 could not deterministically reproduce that non-firing - the hook fired and blocked in every fresh session tried (`-p` and interactive, dangerous mode, an allow-listed command, and subagent `exec`) - so the silent skip is non-deterministic, session-state dependent, and devin-internal, not fixable from firstmate.
+Do NOT try to harden it by adding devin's declarative `permissions.deny` (worktree `.devin/config.local.json` or `--agent-config`): live testing proved `--permission-mode dangerous` ("auto-approves ALL tools", which is how crewmates launch) OVERRIDES deny for the primary agent, so a deny list is a no-op here and only gives false security.
+The real containment for a layer that can stop firing is the independent post-spawn identity check plus the captain owning the only sanctioned merge path.
+Re-verify this whole picture live (a real devin tool call, not just a piped-in guard test) after any devin or harness version bump.
+Full evidence: `docs/devin-merge-deny.md`.
+
+Post-spawn Foreman identity check (harness-agnostic; `fm_foreman_verify_identity` in `fm-spawn.sh`): when the Claude Foreman crew identity is configured, right after the pane sources the injected env and before the agent launches, firstmate runs `gh auth status` in that same pane shell and confirms the ACTIVE gh account is the bot (`<app-slug>[bot]`), not a personal fallback.
+The result is recorded in `state/<id>.meta` as `foreman_verify=ok|mismatch:<account>|unknown`, and a mismatch prints a loud stderr warning at spawn.
+This is the deterministic containment for the 2026-07-12 failure mode where the injected identity did not reach the merging shell and a crewmate self-merged a PR as the captain's own account.
+It never blocks the spawn; `FM_FOREMAN_VERIFY=0` disables it and `FM_FOREMAN_VERIFY_TIMEOUT` overrides the completion wait (default 15s).
+A `foreman_verify=mismatch:` line in a task's meta is an actionable signal: the crewmate is authing as the wrong account and must not be trusted with push/PR/merge work until fixed.
 
 Devin renders its composer placeholder text ("Ask Devin to build features, fix bugs, or work on your code" when idle, "Guide Devin while it works" when busy) using a dark 24-bit RGB color (`ESC[38;2;124;124;124m`), NOT the SGR 2 dim/faint attribute that claude uses for its ghost text.
 The dim-aware ghost stripper in `fm-tmux-lib.sh` only drops SGR 2 runs, so it cannot catch devin's placeholder.
