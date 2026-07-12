@@ -93,6 +93,15 @@ if [ "${1:-}" = auth ] && [ "${2:-}" = status ]; then
     echo "  - Active account: false"
     exit 0
   fi
+  # FM_FAKE_GH_NOACTIVE models a single-block / older gh rendering that emits the
+  # injected (GH_TOKEN) block but NO 'Active account:' marker at all. The
+  # (GH_TOKEN) block alone must still verify ok, since gh forces an env token
+  # active whenever it is set - keying ok off the marker would false-alarm here.
+  if [ -n "${FM_FAKE_GH_NOACTIVE:-}" ]; then
+    echo "  X Failed to log in to github.com using token (GH_TOKEN)"
+    echo "  - The token in GH_TOKEN is invalid."
+    exit 0
+  fi
   active="${FM_FAKE_GH_ACTIVE-claude-foreman[bot]}"
   if [ -n "$active" ]; then
     echo "  ✓ Logged in to github.com account $active (GH_TOKEN)"
@@ -193,6 +202,23 @@ test_unresolved_installation_token_verifies_ok() {
   pass "an unresolvable active injected installation token records foreman_verify=ok"
 }
 
+test_token_block_without_active_marker_verifies_ok() {
+  local rec id out status
+  id=verify-noactive-z1
+  register_task_tmp "$id"
+  rec=$(make_verify_case verify-noactive "$id")
+  read_case_record "$rec"
+  out=$(FM_FAKE_GH_NOACTIVE=1 run_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR")
+  status=$?
+  register_foreman_tmp "$HOME_DIR/state/$id.meta"
+  expect_code 0 "$status" "a token-only rendering must never block the spawn"
+  assert_contains "$out" "spawned $id" "spawn did not complete"
+  assert_grep "foreman_verify=ok" "$HOME_DIR/state/$id.meta" "an injected (GH_TOKEN) block with no Active-account marker should still record ok"
+  assert_not_contains "$out" "unverified" "a present injected token must not warn as unverified"
+  assert_not_contains "$out" "WARNING: Claude Foreman identity is NOT active" "a present injected token must not warn mismatch"
+  pass "an injected (GH_TOKEN) block records ok even without an Active-account marker"
+}
+
 test_personal_fallthrough_warns_mismatch() {
   local rec id out status
   id=verify-mismatch-z1
@@ -257,6 +283,7 @@ test_verify_disabled_is_silent() {
 
 test_bot_active_verifies_ok
 test_unresolved_installation_token_verifies_ok
+test_token_block_without_active_marker_verifies_ok
 test_personal_fallthrough_warns_mismatch
 test_no_active_account_is_unknown
 test_nonexecuting_pane_times_out_unknown

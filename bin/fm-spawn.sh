@@ -650,41 +650,66 @@ fm_foreman_verify_identity() {  # <target> <foreman_tmp> <bot_name> <meta_file> 
     echo "warning: could not confirm the Claude Foreman identity in the pane for $fv_task (gh auth status did not complete in ${fv_limit}s); the crewmate's GitHub identity is unverified" >&2
     return 0
   fi
-  # Identify the ACTIVE account (the block gh marks 'Active account: true') by
-  # BOTH its resolved login and its credential source. gh prints the source in
-  # parentheses: (GH_TOKEN) for the injected env token, (keyring)/(oauth_token)
-  # for a personal login. A GitHub App INSTALLATION token - what the Foreman env
-  # injects - cannot resolve a login through gh's viewer API, so gh renders the
-  # active env-token block as 'Failed to log in ... using token (GH_TOKEN)' with
-  # no login; that is still the bot token by construction, not a personal
-  # fallthrough. So a resolved login is authoritative (the bot -> ok, any other
-  # login -> mismatch), and only when the login is unresolvable do we trust the
-  # source: an active (GH_TOKEN) block means the injected Foreman token took
-  # effect and gh merely could not name the bot.
+  # gh prints each credential's source in parentheses: (GH_TOKEN) for the injected
+  # env token, (keyring)/(oauth_token) for a personal login. gh always forces an
+  # env token to be the ACTIVE account whenever GH_TOKEN is set, so the presence of
+  # a (GH_TOKEN) block - Failed OR Logged-in - is the authoritative signal that the
+  # injected Foreman credential took effect; the 'Active account: true' marker only
+  # corroborates it, and older/single-block gh renderings may omit that marker
+  # entirely, so keying off the marker alone would degrade the happy path to
+  # 'unknown'. A GitHub App INSTALLATION token - what the Foreman env injects -
+  # cannot resolve a login through gh's viewer API, so gh renders the injected block
+  # as 'Failed to log in ... using token (GH_TOKEN)' with no login; that is still
+  # the bot token by construction, not a personal fallthrough. So: a (GH_TOKEN)
+  # block whose login is the bot -> ok, any other resolved login -> mismatch, an
+  # unresolvable login -> ok (bot by construction). Only when NO (GH_TOKEN) block
+  # exists - the injection did not take effect - do we fall back to the active
+  # account's resolved login to catch the personal fallthrough.
+  # One field per line (a resolved login never contains a newline) so empty
+  # fields - an unresolvable installation token has no login - survive parsing.
   fv_parsed=$(awk '
     /Logged in to github\.com account/ {
       login=$0; sub(/.*account[ \t]+/, "", login); sub(/[ \t]+\(.*/, "", login)
       src=$0; sub(/^[^(]*\(/, "", src); sub(/\).*/, "", src)
-      have=1; next
+      cur_login=login; cur_have=1
+      if (src == "GH_TOKEN") { tok_login=login; tok_seen=1 }
+      next
     }
     /Failed to log in to github\.com using token/ {
-      login=""
       src=$0; sub(/^[^(]*\(/, "", src); sub(/\).*/, "", src)
-      have=1; next
+      cur_login=""; cur_have=1
+      if (src == "GH_TOKEN") { tok_login=""; tok_seen=1 }
+      next
     }
-    /Active account: true/ { if (have) printf "%s\t%s", login, src; exit }
+    /Active account: true/ {
+      if (cur_have) { active_login=cur_login; saw_active=1 }
+    }
+    END { printf "%d\n%s\n%d\n%s\n.\n", tok_seen, tok_login, saw_active, active_login }
   ' "$fv_authcheck" 2>/dev/null)
-  fv_tab=$(printf '\t')
-  fv_active=${fv_parsed%%"$fv_tab"*}
-  fv_src=${fv_parsed#*"$fv_tab"}
-  if [ "$fv_parsed" = "$fv_src" ]; then fv_src=; fi
-  if [ -n "$fv_active" ] && [ "$fv_active" = "$fv_bot" ]; then
-    printf 'foreman_verify=ok\n' >> "$fv_meta"
-  elif [ -n "$fv_active" ]; then
-    printf 'foreman_verify=mismatch:%s\n' "$fv_active" >> "$fv_meta"
-    echo "WARNING: Claude Foreman identity is NOT active in the pane for $fv_task: gh resolves to '$fv_active', not the bot '$fv_bot'. GitHub actions by this crewmate would be attributed to that account - the 2026-07-12 failure mode where a crewmate self-merged a PR as the captain. The injected identity did not take effect; do not trust this crewmate with push/PR/merge work until it is fixed." >&2
-  elif [ "$fv_src" = GH_TOKEN ]; then
-    printf 'foreman_verify=ok\n' >> "$fv_meta"
+  # The trailing sentinel line keeps the four field lines intact even when the
+  # last field (a login) is empty and command substitution strips trailing blanks.
+  {
+    IFS= read -r fv_tok_seen
+    IFS= read -r fv_tok_login
+    IFS= read -r fv_saw_active
+    IFS= read -r fv_active
+  } <<EOF
+$fv_parsed
+EOF
+  if [ "$fv_tok_seen" = 1 ]; then
+    if [ -n "$fv_tok_login" ] && [ "$fv_tok_login" != "$fv_bot" ]; then
+      printf 'foreman_verify=mismatch:%s\n' "$fv_tok_login" >> "$fv_meta"
+      echo "WARNING: Claude Foreman identity is NOT active in the pane for $fv_task: gh resolves the injected token to '$fv_tok_login', not the bot '$fv_bot'. GitHub actions by this crewmate would be attributed to that account - the 2026-07-12 failure mode where a crewmate self-merged a PR as the captain. The injected identity did not take effect; do not trust this crewmate with push/PR/merge work until it is fixed." >&2
+    else
+      printf 'foreman_verify=ok\n' >> "$fv_meta"
+    fi
+  elif [ "$fv_saw_active" = 1 ] && [ -n "$fv_active" ]; then
+    if [ "$fv_active" = "$fv_bot" ]; then
+      printf 'foreman_verify=ok\n' >> "$fv_meta"
+    else
+      printf 'foreman_verify=mismatch:%s\n' "$fv_active" >> "$fv_meta"
+      echo "WARNING: Claude Foreman identity is NOT active in the pane for $fv_task: gh resolves to '$fv_active', not the bot '$fv_bot'. GitHub actions by this crewmate would be attributed to that account - the 2026-07-12 failure mode where a crewmate self-merged a PR as the captain. The injected identity did not take effect; do not trust this crewmate with push/PR/merge work until it is fixed." >&2
+    fi
   else
     printf 'foreman_verify=unknown\n' >> "$fv_meta"
     echo "warning: could not determine the active gh account in the pane for $fv_task; the crewmate's Claude Foreman identity is unverified" >&2
