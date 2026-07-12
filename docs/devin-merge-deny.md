@@ -37,7 +37,9 @@ Because no single in-devin layer is a hard boundary under dangerous mode, firstm
    Do NOT try to "fix" it by adding declarative `permissions.deny`: proven ineffective under dangerous mode.
 2. **The post-spawn identity check** (`fm_foreman_verify_identity` in `bin/fm-spawn.sh`).
    Independent of devin's tool-approval flow entirely.
-   Right after the pane sources the injected Foreman env, and before the agent starts, firstmate runs `gh auth status` in that same pane shell and confirms the ACTIVE gh account is the bot (`<app-slug>[bot]`), not a personal fallback account.
+   Right after the pane sources the injected Foreman env, and before the agent starts, firstmate runs `gh auth status` in that same pane shell and confirms the ACTIVE gh account is the bot, not a personal fallback account.
+   It inspects both the active account's resolved login and its credential source: a login equal to `<app-slug>[bot]` is `ok`, and because a GitHub App installation token cannot resolve a login through gh's viewer API (gh renders it as `Failed to log in ... using token (GH_TOKEN)`), an active account whose source is `(GH_TOKEN)` with no resolvable login is also `ok` - that is the injected Foreman token by construction, not a personal fallthrough.
+   Any other resolvable login (e.g. the captain's keyring account) is a mismatch.
    The result is recorded in `state/<id>.meta` as `foreman_verify=ok`, `foreman_verify=mismatch:<account>`, or `foreman_verify=unknown`, and a mismatch prints a loud stderr warning at spawn.
    This turns the incident's silent injection failure (the merging shell falling through to the captain's login) into a loud, firstmate-detectable signal.
    It NEVER blocks the spawn (Foreman's contract), and it is disabled with `FM_FOREMAN_VERIFY=0` for panes that cannot execute a probe command; `FM_FOREMAN_VERIFY_TIMEOUT` overrides the completion wait (default 15s).

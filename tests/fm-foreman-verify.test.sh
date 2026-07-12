@@ -82,8 +82,18 @@ SH
 #!/usr/bin/env bash
 set -u
 if [ "${1:-}" = auth ] && [ "${2:-}" = status ]; then
-  active="${FM_FAKE_GH_ACTIVE-claude-foreman[bot]}"
   echo "github.com"
+  # FM_FAKE_GH_UNRESOLVED models a real GitHub App installation token: the
+  # injected env token is active but gh's viewer API cannot resolve it to a
+  # login, so gh prints a 'Failed to log in ... using token (GH_TOKEN)' block.
+  if [ -n "${FM_FAKE_GH_UNRESOLVED:-}" ]; then
+    echo "  X Failed to log in to github.com using token (GH_TOKEN)"
+    echo "  - Active account: true"
+    echo "  ✓ Logged in to github.com account hayssamhob (keyring)"
+    echo "  - Active account: false"
+    exit 0
+  fi
+  active="${FM_FAKE_GH_ACTIVE-claude-foreman[bot]}"
   if [ -n "$active" ]; then
     echo "  ✓ Logged in to github.com account $active (GH_TOKEN)"
     echo "  - Active account: true"
@@ -166,6 +176,23 @@ test_bot_active_verifies_ok() {
   pass "bot active in the pane records foreman_verify=ok and stays silent"
 }
 
+test_unresolved_installation_token_verifies_ok() {
+  local rec id out status
+  id=verify-inst-z1
+  register_task_tmp "$id"
+  rec=$(make_verify_case verify-inst "$id")
+  read_case_record "$rec"
+  out=$(FM_FAKE_GH_UNRESOLVED=1 run_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR")
+  status=$?
+  register_foreman_tmp "$HOME_DIR/state/$id.meta"
+  expect_code 0 "$status" "an active injected installation token must never block the spawn"
+  assert_contains "$out" "spawned $id" "spawn did not complete"
+  assert_grep "foreman_verify=ok" "$HOME_DIR/state/$id.meta" "an active (GH_TOKEN) block gh cannot resolve to a login should still record ok"
+  assert_not_contains "$out" "unverified" "an active injected token must not warn as unverified"
+  assert_not_contains "$out" "WARNING: Claude Foreman identity is NOT active" "an active injected token must not warn mismatch"
+  pass "an unresolvable active injected installation token records foreman_verify=ok"
+}
+
 test_personal_fallthrough_warns_mismatch() {
   local rec id out status
   id=verify-mismatch-z1
@@ -229,6 +256,7 @@ test_verify_disabled_is_silent() {
 }
 
 test_bot_active_verifies_ok
+test_unresolved_installation_token_verifies_ok
 test_personal_fallthrough_warns_mismatch
 test_no_active_account_is_unknown
 test_nonexecuting_pane_times_out_unknown
