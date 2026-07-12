@@ -40,6 +40,9 @@ Injection is pane-environment only - a PATH shim for `gh`, `GH_TOKEN`/`GITHUB_TO
 The injection is delivered as one short pane line that sources a per-task `env.sh` written into the private foreman dir; the file holds no token value (the token is minted at source time in the pane), and the single short line avoids the pane-keystroke truncation that long inline export lines were observed to hit, which broke git and gh in the task.
 The 1h token TTL is handled by re-minting on demand through `bin/fm-foreman-token.sh`'s per-task cache (served while younger than ~50 minutes), so long tasks outlive the TTL without a static token going stale; a corrupted cache file simply triggers a re-mint.
 The token cache and `gh` shim live in a private per-task 0700 directory recorded as `foremantmp=` in task meta and removed by teardown.
+As defense in depth, right after the pane sources the injected env and before the agent launches, `fm-spawn.sh` runs `gh auth status` in that same pane shell and confirms the active gh account is the bot, recording `foreman_verify=ok`, `foreman_verify=mismatch:<account>`, or `foreman_verify=unknown` in task meta; a mismatch prints a loud stderr warning and marks the crewmate untrustworthy for push/PR/merge work, because a mismatch means the injected identity did not reach the merging shell (the 2026-07-12 incident where a crewmate self-merged a PR as the captain's personal account).
+This check never blocks the spawn; set `FM_FOREMAN_VERIFY=0` to disable it for panes that cannot execute a probe command, and `FM_FOREMAN_VERIFY_TIMEOUT` (default 15s) to override how long it waits for `gh auth status` to complete.
+See `docs/devin-merge-deny.md` for the full evidence behind this layered defense.
 Secondmate spawns are exempt: they are firstmate homes, not project crews.
 Non-GitHub origins skip injection silently.
 The resolved bot user id is cached in gitignored `config/claude-foreman.bot`.

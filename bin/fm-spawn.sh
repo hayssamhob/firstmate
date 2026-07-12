@@ -614,6 +614,118 @@ spawn_send_key() {  # <target> <key>
     herdr) fm_backend_herdr_send_key "$1" "$2" ;;
   esac
 }
+# Defense in depth for the Claude Foreman crew identity (the 2026-07-12 incident:
+# a devin crewmate self-merged a PR attributed to the captain's own account).
+# After the pane sources the injected env, confirm that gh IN THAT pane shell -
+# the same shell the agent and its exec/gh calls will use - actually resolves to
+# the bot, not a personal fallback account. In the incident the injected env did
+# not reach the merging shell, so gh fell through to the captain's keyring login.
+# The merge-deny PreToolUse hook is the primary guard, but it is a single
+# devin-internal layer that can silently stop firing (and devin's
+# --permission-mode dangerous overrides devin's own declarative permissions.deny),
+# so this independent check turns a silent injection failure into a loud,
+# firstmate-detectable signal recorded in meta (foreman_verify=) instead of
+# relying on the hook alone. It NEVER blocks the spawn (Foreman's contract).
+# Disable with FM_FOREMAN_VERIFY=0 for panes that cannot execute a probe command;
+# FM_FOREMAN_VERIFY_TIMEOUT overrides the completion wait (default 15s).
+fm_foreman_verify_identity() {  # <target> <foreman_tmp> <bot_name> <meta_file> <id>
+  [ "${FM_FOREMAN_VERIFY:-1}" != 0 ] || return 0
+  fv_target=$1; fv_ftmp=$2; fv_bot=$3; fv_meta=$4; fv_task=$5
+  fv_authcheck="$fv_ftmp/authcheck.txt"
+  rm -f "$fv_authcheck"
+  # Run gh auth status in the pane with the just-sourced Foreman env. Output goes
+  # to a 0700 temp file (gh auth status can print the token, so never scrollback),
+  # followed by a sentinel line so we can tell it finished.
+  spawn_send_text_line "$fv_target" "{ gh auth status; } > $(shell_quote "$fv_authcheck") 2>&1; printf 'FM_AUTHCHECK_DONE\n' >> $(shell_quote "$fv_authcheck")"
+  fv_limit=${FM_FOREMAN_VERIFY_TIMEOUT:-15}
+  fv_waited=0
+  while :; do
+    [ -f "$fv_authcheck" ] && grep -q FM_AUTHCHECK_DONE "$fv_authcheck" 2>/dev/null && break
+    fv_waited=$((fv_waited + 1))
+    [ "$fv_waited" -ge $((fv_limit * 4)) ] && break
+    sleep 0.25
+  done
+  if ! { [ -f "$fv_authcheck" ] && grep -q FM_AUTHCHECK_DONE "$fv_authcheck" 2>/dev/null; }; then
+    printf 'foreman_verify=unknown\n' >> "$fv_meta"
+    echo "warning: could not confirm the Claude Foreman identity in the pane for $fv_task (gh auth status did not complete in ${fv_limit}s); the crewmate's GitHub identity is unverified" >&2
+    return 0
+  fi
+  # gh prints each credential's source in parentheses: (GH_TOKEN) for the injected
+  # env token, (keyring)/(oauth_token) for a personal login. gh always forces an
+  # env token to be the ACTIVE account whenever GH_TOKEN is set, so the presence of
+  # a (GH_TOKEN) block - Failed OR Logged-in - is the authoritative signal that the
+  # injected Foreman credential took effect; the 'Active account: true' marker only
+  # corroborates it, and older/single-block gh renderings may omit that marker
+  # entirely, so keying off the marker alone would degrade the happy path to
+  # 'unknown'. A GitHub App INSTALLATION token - what the Foreman env injects -
+  # cannot resolve a login through gh's viewer API, so gh renders the injected block
+  # as 'Failed to log in ... using token (GH_TOKEN)' with no login; that is still
+  # the bot token by construction, not a personal fallthrough. So: a (GH_TOKEN)
+  # block whose login is the bot -> ok, any other resolved login -> mismatch, an
+  # unresolvable login -> ok (bot by construction). Only when NO (GH_TOKEN) block
+  # exists - the injection did not take effect - do we fall back to the active
+  # account's resolved login to catch the personal fallthrough.
+  # One field per line (a resolved login never contains a newline) so empty
+  # fields - an unresolvable installation token has no login - survive parsing.
+  fv_parsed=$(awk '
+    /Logged in to github\.com account/ {
+      login=$0; sub(/.*account[ \t]+/, "", login); sub(/[ \t]+\(.*/, "", login)
+      src=$0; sub(/^[^(]*\(/, "", src); sub(/\).*/, "", src)
+      cur_login=login; cur_have=1
+      if (src == "GH_TOKEN") { tok_login=login; tok_seen=1 }
+      next
+    }
+    /Failed to log in to github\.com using token/ {
+      src=$0; sub(/^[^(]*\(/, "", src); sub(/\).*/, "", src)
+      cur_login=""; cur_have=1
+      if (src == "GH_TOKEN") { tok_login=""; tok_seen=1 }
+      next
+    }
+    /Active account: true/ {
+      if (cur_have) { active_login=cur_login; saw_active=1 }
+    }
+    END { printf "%d\n%s\n%d\n%s\n.\n", tok_seen, tok_login, saw_active, active_login }
+  ' "$fv_authcheck" 2>/dev/null || :)
+  # This whole function runs under the script's global `set -eu`, but it must
+  # NEVER abort the spawn (Foreman's contract) - a defense-in-depth check that
+  # can itself kill the spawn is worse than no check. So the awk substitution is
+  # guarded with `|| :` (a missing/failing awk, or an unreadable authcheck,
+  # yields an empty parse instead of a non-zero status that set -e would exit on)
+  # and each read below with `|| :` (an empty/short parse hits EOF, which read
+  # returns non-zero for). An empty parse leaves every field empty, so the logic
+  # below falls through to foreman_verify=unknown + a warning - exactly the
+  # intended degrade. Pre-seed the fields so set -u never trips on an unset one.
+  fv_tok_seen=; fv_tok_login=; fv_saw_active=; fv_active=
+  # The trailing sentinel line keeps the four field lines intact even when the
+  # last field (a login) is empty and command substitution strips trailing blanks.
+  {
+    IFS= read -r fv_tok_seen || :
+    IFS= read -r fv_tok_login || :
+    IFS= read -r fv_saw_active || :
+    IFS= read -r fv_active || :
+  } <<EOF
+$fv_parsed
+EOF
+  if [ "$fv_tok_seen" = 1 ]; then
+    if [ -n "$fv_tok_login" ] && [ "$fv_tok_login" != "$fv_bot" ]; then
+      printf 'foreman_verify=mismatch:%s\n' "$fv_tok_login" >> "$fv_meta"
+      echo "WARNING: Claude Foreman identity is NOT active in the pane for $fv_task: gh resolves the injected token to '$fv_tok_login', not the bot '$fv_bot'. GitHub actions by this crewmate would be attributed to that account - the 2026-07-12 failure mode where a crewmate self-merged a PR as the captain. The injected identity did not take effect; do not trust this crewmate with push/PR/merge work until it is fixed." >&2
+    else
+      printf 'foreman_verify=ok\n' >> "$fv_meta"
+    fi
+  elif [ "$fv_saw_active" = 1 ] && [ -n "$fv_active" ]; then
+    if [ "$fv_active" = "$fv_bot" ]; then
+      printf 'foreman_verify=ok\n' >> "$fv_meta"
+    else
+      printf 'foreman_verify=mismatch:%s\n' "$fv_active" >> "$fv_meta"
+      echo "WARNING: Claude Foreman identity is NOT active in the pane for $fv_task: gh resolves to '$fv_active', not the bot '$fv_bot'. GitHub actions by this crewmate would be attributed to that account - the 2026-07-12 failure mode where a crewmate self-merged a PR as the captain. The injected identity did not take effect; do not trust this crewmate with push/PR/merge work until it is fixed." >&2
+    fi
+  else
+    printf 'foreman_verify=unknown\n' >> "$fv_meta"
+    echo "warning: could not determine the active gh account in the pane for $fv_task; the crewmate's Claude Foreman identity is unverified" >&2
+  fi
+  return 0
+}
 if [ "$KIND" != secondmate ]; then
   spawn_send_text_line "$T" 'treehouse get'
 
@@ -771,17 +883,38 @@ EOF
       # settings files). The Stop event fires at every turn boundary - exactly
       # the signal the watcher needs to surface an idle crewmate.
       #
-      # A PreToolUse hook deterministically BLOCKS merge-capable and main/master
-      # push commands (gh pr merge, gh api .../merge, gh pr review --approve, and
-      # git push to main/master) before they run, regardless of what the model
-      # decides - crewmates never merge or push to the default branch (that is
-      # firstmate's call). devin fires PreToolUse with a Claude-Code-shaped stdin
-      # JSON ({tool_name, tool_input:{command}}) and treats a non-zero guard exit
-      # as a tool rejection with the guard's stderr fed back to the model
-      # (verified live: exit 2 blocks the exec before execution, subagents
-      # inherit the same worktree hooks). This block runs only for non-secondmate
-      # spawns (the enclosing KIND guard), so secondmates - which are firstmates
-      # and legitimately merge - never get the deny hook.
+      # A PreToolUse hook BLOCKS merge-capable and main/master push commands
+      # (gh pr merge, gh api .../merge, gh pr review --approve, and git push to
+      # main/master) before they run - crewmates never merge or push to the
+      # default branch (that is firstmate's call). devin fires PreToolUse with a
+      # Claude-Code-shaped stdin JSON ({tool_name, tool_input:{command}}) and
+      # treats a non-zero guard exit as a tool rejection with the guard's stderr
+      # fed back to the model (exit 2 blocks the exec before execution; subagents
+      # inherit the same worktree hooks - re-verified live on devin 3000.1.27,
+      # where a subagent's exec of `git push ... main` was blocked while the outer
+      # run_subagent delegation call, which carries no command field, correctly
+      # passed). This block runs only for non-secondmate spawns (the enclosing
+      # KIND guard), so secondmates - which are firstmates and legitimately merge
+      # - never get the deny hook.
+      #
+      # IMPORTANT - this hook is NOT a hard boundary; it is one devin-internal
+      # layer that can silently stop firing. On 2026-07-12 a devin 3000.1.27
+      # crewmate ran `gh pr merge` in its primary loop and it SUCCEEDED even
+      # though this hook and guard were present and correct (piping the exact
+      # captured payload into the guard by hand still returned exit 2). Live
+      # re-testing on 3000.1.27 could not deterministically reproduce that
+      # non-firing - the hook fired and blocked in every fresh session tried
+      # (-p and interactive, dangerous mode, allow-listed command, and subagent
+      # exec) - so the incident's silent skip is non-deterministic / session-state
+      # dependent and devin-internal, not fixable from here. Do NOT try to harden
+      # this by adding devin's declarative permissions.deny (worktree
+      # .devin/config.local.json or --agent-config): live testing proved
+      # --permission-mode dangerous ("auto-approves ALL tools", which is how
+      # crewmates launch) OVERRIDES deny for the primary agent, so a deny list is
+      # a no-op here and would only give false security. The real containment for
+      # a layer that can stop firing is the independent post-spawn identity check
+      # (fm_foreman_verify_identity) plus keeping the captain's merge as the only
+      # sanctioned merge path. See docs/devin-merge-deny.md for the full evidence.
       mkdir -p "$WT/.devin"
       cat > "$WT/.devin/fm-merge-deny.sh" <<'DENY'
 #!/bin/sh
@@ -1031,6 +1164,9 @@ fi
 if [ -n "$FOREMAN_ACTIVE" ]; then
   spawn_send_text_line "$T" ". $(shell_quote "$FOREMAN_TMP/env.sh")"
   sleep 0.3
+  # Confirm the injected identity is actually active in this pane's shell before
+  # the agent starts; records foreman_verify= in meta and warns on mismatch.
+  fm_foreman_verify_identity "$T" "$FOREMAN_TMP" "$FOREMAN_BOT_NAME" "$STATE/$ID.meta" "$ID"
 fi
 
 # Export GOTMPDIR into the crewmate's pane shell so the agent and every child
