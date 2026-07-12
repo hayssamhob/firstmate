@@ -685,14 +685,24 @@ fm_foreman_verify_identity() {  # <target> <foreman_tmp> <bot_name> <meta_file> 
       if (cur_have) { active_login=cur_login; saw_active=1 }
     }
     END { printf "%d\n%s\n%d\n%s\n.\n", tok_seen, tok_login, saw_active, active_login }
-  ' "$fv_authcheck" 2>/dev/null)
+  ' "$fv_authcheck" 2>/dev/null || :)
+  # This whole function runs under the script's global `set -eu`, but it must
+  # NEVER abort the spawn (Foreman's contract) - a defense-in-depth check that
+  # can itself kill the spawn is worse than no check. So the awk substitution is
+  # guarded with `|| :` (a missing/failing awk, or an unreadable authcheck,
+  # yields an empty parse instead of a non-zero status that set -e would exit on)
+  # and each read below with `|| :` (an empty/short parse hits EOF, which read
+  # returns non-zero for). An empty parse leaves every field empty, so the logic
+  # below falls through to foreman_verify=unknown + a warning - exactly the
+  # intended degrade. Pre-seed the fields so set -u never trips on an unset one.
+  fv_tok_seen=; fv_tok_login=; fv_saw_active=; fv_active=
   # The trailing sentinel line keeps the four field lines intact even when the
   # last field (a login) is empty and command substitution strips trailing blanks.
   {
-    IFS= read -r fv_tok_seen
-    IFS= read -r fv_tok_login
-    IFS= read -r fv_saw_active
-    IFS= read -r fv_active
+    IFS= read -r fv_tok_seen || :
+    IFS= read -r fv_tok_login || :
+    IFS= read -r fv_saw_active || :
+    IFS= read -r fv_active || :
   } <<EOF
 $fv_parsed
 EOF

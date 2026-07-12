@@ -114,6 +114,24 @@ fi
 exit 0
 SH
   chmod +x "$fakebin/gh"
+  # Fake awk: delegates to the real awk, EXCEPT when FM_FAKE_AWK_FAIL is set it
+  # fails (exit 1) on the verify's authcheck parse (an arg ending in
+  # authcheck.txt). This simulates a missing/broken awk for
+  # fm_foreman_verify_identity precisely, without breaking the other awk calls in
+  # the spawn path (e.g. fm-project-mode.sh), so the test isolates the set -e
+  # guard on the verify's own awk substitution.
+  local real_awk
+  real_awk=$(command -v awk)
+  cat > "$fakebin/awk" <<SH
+#!/usr/bin/env bash
+if [ -n "\${FM_FAKE_AWK_FAIL:-}" ]; then
+  for a in "\$@"; do
+    case "\$a" in *authcheck.txt) exit 1 ;; esac
+  done
+fi
+exec $real_awk "\$@"
+SH
+  chmod +x "$fakebin/awk"
   fm_fake_exit0 "$fakebin" treehouse
   printf '%s\n' "$fakebin"
 }
@@ -281,6 +299,27 @@ test_verify_disabled_is_silent() {
   pass "FM_FOREMAN_VERIFY=0 disables the identity check entirely"
 }
 
+test_failing_awk_degrades_to_unknown() {
+  # Regression for the set -e abort risk (flagged by Gemini + Qodo on PR #9):
+  # fm-spawn.sh runs under `set -eu`, so an unguarded awk failure in the verify
+  # would abort the WHOLE spawn, defeating the check's own never-block contract.
+  # Here the bot IS active in the pane, but the verify's awk parse fails; the
+  # spawn must still succeed and degrade to foreman_verify=unknown, not abort.
+  local rec id out status
+  id=verify-awkfail-z1
+  register_task_tmp "$id"
+  rec=$(make_verify_case verify-awkfail "$id")
+  read_case_record "$rec"
+  out=$(FM_FAKE_AWK_FAIL=1 run_spawn "$HOME_DIR" "$WT_DIR" "$FAKEBIN_DIR" "$LAUNCH_LOG" "$id" "$PROJ_DIR")
+  status=$?
+  register_foreman_tmp "$HOME_DIR/state/$id.meta"
+  expect_code 0 "$status" "a failing awk in the verify must never abort the spawn"
+  assert_contains "$out" "spawned $id" "spawn should still complete when the verify's awk fails"
+  assert_grep "foreman_verify=unknown" "$HOME_DIR/state/$id.meta" "a failing awk should degrade to foreman_verify=unknown"
+  assert_contains "$out" "unverified" "a failing awk parse should warn that identity is unverified"
+  pass "a failing awk in the verify degrades to unknown without aborting the spawn"
+}
+
 test_bot_active_verifies_ok
 test_unresolved_installation_token_verifies_ok
 test_token_block_without_active_marker_verifies_ok
@@ -288,3 +327,4 @@ test_personal_fallthrough_warns_mismatch
 test_no_active_account_is_unknown
 test_nonexecuting_pane_times_out_unknown
 test_verify_disabled_is_silent
+test_failing_awk_degrades_to_unknown
