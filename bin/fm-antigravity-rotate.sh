@@ -132,7 +132,7 @@ fi
 # 3. Swap the target snapshot into oauth_creds.json (atomic).
 if ! agy_atomic_copy_json "$SNAP" "$OC"; then
   echo "error: failed to install $TARGET creds; restoring from backup" >&2
-  [ -f "$BACKUP_DIR/oauth_creds.json" ] && cp -p "$BACKUP_DIR/oauth_creds.json" "$OC" || true
+  if [ -f "$BACKUP_DIR/oauth_creds.json" ]; then cp -p "$BACKUP_DIR/oauth_creds.json" "$OC" || true; fi
   exit 1
 fi
 
@@ -150,8 +150,8 @@ if ! jq \
       | {active: $active, old: $old}
       ' "$GA" | agy_atomic_write_json "$GA"; then
   echo "error: failed to update google_accounts.json; restoring auth from backup" >&2
-  [ -f "$BACKUP_DIR/oauth_creds.json" ] && cp -p "$BACKUP_DIR/oauth_creds.json" "$OC" || true
-  [ -f "$BACKUP_DIR/google_accounts.json" ] && cp -p "$BACKUP_DIR/google_accounts.json" "$GA" || true
+  if [ -f "$BACKUP_DIR/oauth_creds.json" ]; then cp -p "$BACKUP_DIR/oauth_creds.json" "$OC" || true; fi
+  if [ -f "$BACKUP_DIR/google_accounts.json" ]; then cp -p "$BACKUP_DIR/google_accounts.json" "$GA" || true; fi
   exit 1
 fi
 

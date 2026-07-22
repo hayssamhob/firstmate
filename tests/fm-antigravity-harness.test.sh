@@ -186,10 +186,14 @@ set_active() {  # <scratch> <email> [old...]
 }
 
 creds_email() {  # <scratch> -> email inside oauth_creds id_token
-  local scratch=$1 p pad
+  local scratch=$1 p pad b64 decoded
   p=$(jq -r '.id_token' "$scratch/oauth_creds.json" | cut -d. -f2)
   pad=$(( (4 - ${#p} % 4) % 4 ))
-  printf '%s%*s' "$p" "$pad" '' | tr ' ' '=' | tr '_-' '/+' | base64 -D 2>/dev/null | jq -r .email
+  # base64url -> base64 with padding, then decode portably (GNU `-d`, BSD `-D`).
+  b64=$(printf '%s%*s' "$p" "$pad" '' | tr ' ' '=' | tr '_-' '/+')
+  decoded=$(printf '%s' "$b64" | base64 -d 2>/dev/null)
+  [ -n "$decoded" ] || decoded=$(printf '%s' "$b64" | base64 -D 2>/dev/null)
+  printf '%s' "$decoded" | jq -r .email
 }
 
 test_antigravity_rotation_roundtrip() {
@@ -215,8 +219,9 @@ test_antigravity_rotation_roundtrip() {
   assert_contains "$out" "already active" "rotate to the active account should be a no-op"
 
   # backups made and JSON valid throughout.
-  [ -d "$scratch/fm-antigravity-accounts/backups" ] && [ -n "$(ls -A "$scratch/fm-antigravity-accounts/backups")" ] \
-    || fail "no rotation backups were written"
+  if [ ! -d "$scratch/fm-antigravity-accounts/backups" ] || [ -z "$(ls -A "$scratch/fm-antigravity-accounts/backups")" ]; then
+    fail "no rotation backups were written"
+  fi
   jq -e . "$scratch/oauth_creds.json" >/dev/null || fail "oauth_creds.json invalid after rotation"
   jq -e . "$scratch/google_accounts.json" >/dev/null || fail "google_accounts.json invalid after rotation"
   pass "rotation round-robins accounts, follows creds, backs up, and keeps JSON valid"
