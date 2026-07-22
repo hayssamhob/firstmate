@@ -77,7 +77,7 @@ Every mutation of the live auth is defensive.
 - backs up `oauth_creds.json` + `google_accounts.json` before any write;
 - re-snapshots the OUTGOING account so its latest refresh token is preserved for a future rotation back;
 - writes both files atomically (temp + `mv`) and validates JSON before and after;
-- restores from the backup if a write fails;
+- restores from the backup atomically if a write fails - the same temp + validate + `mv` as the write path, so an interrupted restore can never leave the live auth partially written, and the intact backup dir is preserved (a warning, not an abort) if the restore itself fails;
 - serializes concurrent rotations under a lock;
 - refuses on any inconsistency (missing/invalid auth, missing snapshot, a snapshot whose token does not match its email) rather than guessing.
 
