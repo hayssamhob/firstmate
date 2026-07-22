@@ -54,7 +54,7 @@ Full detail on every feature lives in [docs/architecture.md](docs/architecture.m
 
 ## Quick Start
 
-**Requirements:** a verified agent harness (claude, codex, opencode, pi, grok, or devin), git with GitHub auth, and tmux for the reference session backend.
+**Requirements:** a verified agent harness (claude, codex, opencode, pi, grok, devin, or antigravity), git with GitHub auth, and tmux for the reference session backend.
 Experimental herdr spawns additionally require `herdr` and `jq`, checked at spawn time.
 The first mate detects and offers to install everything else.
 

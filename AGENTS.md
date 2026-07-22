@@ -184,7 +184,7 @@ If the captain expresses a standing dispatch preference such as "use grok for ne
 Crewmates default to the same harness you are running on.
 The captain may override the static default at any time, typically at bootstrap: record the choice in `config/crew-harness` (a single adapter name; absent or `default` means mirror your own harness).
 Resolve `default` with `bin/fm-harness.sh`; resolve the active static crewmate harness with `bin/fm-harness.sh crew`.
-Verified adapter names are `claude`, `codex`, `opencode`, `pi`, `grok`, and `devin`.
+Verified adapter names are `claude`, `codex`, `opencode`, `pi`, `grok`, `devin`, and `antigravity`.
 
 ### Crew dispatch profiles
 
@@ -247,6 +247,7 @@ The verified profile axes are:
 - `pi`: model via `--model <name>`, effort via `--thinking <low|medium|high|xhigh>`; `max` is not passed because the installed Pi CLI warns that it is invalid.
 - `opencode`: model via `--model <provider/model>`; no verified effort flag for firstmate's interactive `opencode --prompt` launch, so effort is not passed.
 - `devin`: model via `--model <name>`; no verified reasoning-effort flag, so effort is not passed.
+- `antigravity`: model via `--model <id>` (exact ids from `agy models`); effort is the model-id suffix (`gemini-3.6-flash-high|medium|low`), which conflicts with a standalone effort flag, so no separate effort flag is passed (model-only, like opencode). The default crewmate model is Gemini 3.6 Flash (`gemini-3.6-flash-high`); escalation is per-task `--model claude-opus-4-6-thinking`. Account rotation across the captain's Google accounts (snapshot/capture, out-of-credits detection, safe swap) is handled by `bin/fm-antigravity-accounts.sh`, `bin/fm-antigravity-rotate.sh`, and `bin/fm-antigravity-credit-check.sh`; see the `harness-adapters` skill and `docs/antigravity-rotation.md`.
 
 If the selected profile asks for an effort value the selected harness does not accept, `fm-spawn` records the requested `effort=` in meta for traceability but omits the launch flag so the harness starts successfully.
 Bootstrap reports this as a `CREW_DISPATCH` diagnostic when it can see the invalid harness/effort pair in `config/crew-dispatch.json`.

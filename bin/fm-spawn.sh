@@ -194,7 +194,7 @@ FIRSTMATE_HOME=
 
 if [ "$KIND" = secondmate ]; then
   case "${POS[1]:-}" in
-    ''|claude|codex|opencode|pi|grok|devin)
+    ''|claude|codex|opencode|pi|grok|devin|antigravity)
       ARG3=${POS[1]:-}
       ;;
     *' '*)
@@ -262,6 +262,20 @@ launch_template() {
     # which devin reads natively), wired below - not via the launch command, so
     # the same template serves ship, scout, and secondmate spawns.
     devin) printf '%s' 'devin --prompt-file __BRIEF__ __MODELFLAG__--permission-mode dangerous' ;;
+    # antigravity (Google's Antigravity agent CLI, the `agy` binary):
+    # --prompt-interactive (-i) runs the brief as an initial prompt AND keeps the
+    # supervised interactive session open (the shape firstmate supervises); -p/
+    # --print is one-shot and not used here. --dangerously-skip-permissions
+    # auto-approves every tool (verified: runs unattended, executes file edits
+    # without prompting), the agy equivalent of claude's flag. --mode accept-edits
+    # keeps edit application autonomous. Model defaults to Gemini 3.6 Flash via
+    # model_flag_for_harness (__MODELFLAG__); firstmate escalates per-task to Claude
+    # Opus 4.6 (Thinking) with --model. agy has NO Claude/devin-compatible Stop or
+    # PreToolUse hook (it is a Google CLI), so the turn-end signal does NOT ride the
+    # launch command and no hook is installed below - the watcher relies on
+    # stale-pane detection for turn boundaries (harness-adapters skill). The same
+    # template serves ship/scout/secondmate.
+    antigravity) printf '%s' 'agy --dangerously-skip-permissions --mode accept-edits __MODELFLAG__--prompt-interactive "$(cat __BRIEF__)"' ;;
     *) return 1 ;;
   esac
 }
@@ -345,8 +359,31 @@ shell_quote() {
   printf "'"
 }
 
+# antigravity's default crewmate model (captain requirement): Gemini 3.6 Flash,
+# the fast/cheap workhorse. Use the SUFFIXED id `gemini-3.6-flash-high` - the exact
+# id agy exposes in `agy models`. Verified empirically (agy 1.1.5): a suffixed id
+# selects reliably in --prompt-interactive mode (banner/footer show "Gemini 3.6
+# Flash (High)"), whereas a BASE id like `gemini-3.6-flash` silently falls back to
+# the account's persisted default model in interactive mode. The `-high/-medium/-low`
+# suffix IS the reasoning-effort tier (it conflicts with a separate --effort flag),
+# so antigravity effort is expressed by choosing the model-id suffix, not --effort
+# (see effort_flag_for_harness). Escalation to Claude Opus 4.6 (Thinking) is per-task
+# via --model claude-opus-4-6-thinking.
+ANTIGRAVITY_DEFAULT_MODEL=gemini-3.6-flash-high
+
 model_flag_for_harness() {
   local harness=$1 model=$2
+  # antigravity always carries a --model: the captain-required default is
+  # Gemini 3.6 Flash, so an unset/default model resolves to it rather than
+  # deferring to agy's own account default.
+  if [ "$harness" = antigravity ]; then
+    if [ -z "$model" ] || [ "$model" = default ]; then
+      printf -- '--model %s ' "$(shell_quote "$ANTIGRAVITY_DEFAULT_MODEL")"
+    else
+      printf -- '--model %s ' "$(shell_quote "$model")"
+    fi
+    return 0
+  fi
   [ -n "$model" ] && [ "$model" != default ] || return 0
   case "$harness" in
     claude|codex|opencode|pi|grok|devin)
@@ -358,6 +395,12 @@ model_flag_for_harness() {
 effort_flag_for_harness() {
   local harness=$1 effort=$2
   [ -n "$effort" ] && [ "$effort" != default ] || return 0
+  # antigravity is deliberately absent: agy's reasoning-effort tier IS the model-id
+  # suffix (gemini-3.6-flash-high/medium/low), and a standalone --effort conflicts
+  # with a suffixed id and is unreliable with a base id in interactive mode. So
+  # firstmate expresses antigravity effort by selecting the model id, not --effort -
+  # exactly like opencode has model-only. A requested --effort for antigravity is
+  # recorded in meta but emits no flag.
   case "$harness" in
     claude)
       case "$effort" in
@@ -827,6 +870,15 @@ EOF
       ;;
     codex*)
       # codex: turn-end rides the launch command via -c notify=[...] and __TURNEND__.
+      ;;
+    antigravity*)
+      # antigravity (agy) has NO Claude/devin-compatible Stop or PreToolUse hook
+      # (it is a Google CLI: no ~/.claude, .devin, or .grok hook surface it reads).
+      # So there is no turn-end file to install and no merge-deny hook to wire; the
+      # watcher relies on stale-pane detection for turn boundaries, and crewmates
+      # are kept off merges by the brief contract plus firstmate owning the only
+      # merge path (harness-adapters skill). Deliberately a no-op - do NOT fabricate
+      # a hook agy will not read.
       ;;
     grok*)
       # grok fires a Stop hook at every turn boundary (verified, grok 0.2.73), the
