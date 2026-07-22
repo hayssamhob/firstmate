@@ -276,6 +276,34 @@ SH
   pass "credit-check wakes only when the antigravity account is out of credits"
 }
 
+test_antigravity_atomic_restore() {
+  local dir before after
+  dir="$TMP_ROOT/atomic-restore"
+  mkdir -p "$dir"
+  # shellcheck source=bin/fm-antigravity-lib.sh
+  . "$ROOT/bin/fm-antigravity-lib.sh"
+
+  # A valid backup restores exactly and atomically into the live-auth path - the
+  # same primitive the rotate script uses on its restore-from-backup failure paths.
+  printf '{"active":"a@test.com","old":[]}\n' > "$dir/backup.json"
+  printf 'PARTIAL-WRITE{' > "$dir/live.json"  # a live file left partial by a crash
+  agy_atomic_copy_json "$dir/backup.json" "$dir/live.json" || fail "atomic restore of a valid backup failed"
+  jq -e . "$dir/live.json" >/dev/null || fail "restored live auth is not valid JSON"
+  [ "$(jq -r .active "$dir/live.json")" = "a@test.com" ] || fail "restored live auth has wrong content"
+
+  # An invalid backup must NOT touch the live file (atomicity: never a partial
+  # write to the captain's live auth) and must leave no temp file behind.
+  printf '{"active":"good@test.com","old":[]}\n' > "$dir/live2.json"
+  printf 'not json{' > "$dir/bad-backup.json"
+  before=$(cat "$dir/live2.json")
+  agy_atomic_copy_json "$dir/bad-backup.json" "$dir/live2.json" 2>/dev/null \
+    && fail "restore from an invalid backup should fail, not write"
+  after=$(cat "$dir/live2.json")
+  [ "$before" = "$after" ] || fail "invalid restore corrupted the live auth (not atomic)"
+  [ -z "$(ls "$dir"/live2.json.fm.* 2>/dev/null)" ] || fail "atomic restore left a temp file behind"
+  pass "restore-from-backup is atomic and validated (an invalid backup never partially writes live auth)"
+}
+
 test_antigravity_default_launch
 test_antigravity_escalation_model
 test_antigravity_effort_omitted
@@ -283,3 +311,4 @@ test_antigravity_detection
 test_antigravity_rotation_roundtrip
 test_antigravity_rotation_refuses
 test_antigravity_credit_check
+test_antigravity_atomic_restore

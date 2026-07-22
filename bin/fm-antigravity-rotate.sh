@@ -132,7 +132,13 @@ fi
 # 3. Swap the target snapshot into oauth_creds.json (atomic).
 if ! agy_atomic_copy_json "$SNAP" "$OC"; then
   echo "error: failed to install $TARGET creds; restoring from backup" >&2
-  if [ -f "$BACKUP_DIR/oauth_creds.json" ]; then cp -p "$BACKUP_DIR/oauth_creds.json" "$OC" || true; fi
+  # Atomic restore (mktemp-in-same-dir + validate + mv, like the write path), so
+  # an interrupted restore can never leave the captain's live oauth_creds.json
+  # partial; the backup dir stays intact if the restore itself fails.
+  if [ -f "$BACKUP_DIR/oauth_creds.json" ]; then
+    agy_atomic_copy_json "$BACKUP_DIR/oauth_creds.json" "$OC" \
+      || echo "warning: could not restore oauth_creds.json; the intact backup is at $BACKUP_DIR" >&2
+  fi
   exit 1
 fi
 
@@ -150,8 +156,17 @@ if ! jq \
       | {active: $active, old: $old}
       ' "$GA" | agy_atomic_write_json "$GA"; then
   echo "error: failed to update google_accounts.json; restoring auth from backup" >&2
-  if [ -f "$BACKUP_DIR/oauth_creds.json" ]; then cp -p "$BACKUP_DIR/oauth_creds.json" "$OC" || true; fi
-  if [ -f "$BACKUP_DIR/google_accounts.json" ]; then cp -p "$BACKUP_DIR/google_accounts.json" "$GA" || true; fi
+  # Atomic restore of BOTH files (the swap already replaced oauth_creds.json), so a
+  # crash mid-restore never leaves the captain's live auth partial; the backup dir
+  # stays intact if a restore fails.
+  if [ -f "$BACKUP_DIR/oauth_creds.json" ]; then
+    agy_atomic_copy_json "$BACKUP_DIR/oauth_creds.json" "$OC" \
+      || echo "warning: could not restore oauth_creds.json; the intact backup is at $BACKUP_DIR" >&2
+  fi
+  if [ -f "$BACKUP_DIR/google_accounts.json" ]; then
+    agy_atomic_copy_json "$BACKUP_DIR/google_accounts.json" "$GA" \
+      || echo "warning: could not restore google_accounts.json; the intact backup is at $BACKUP_DIR" >&2
+  fi
   exit 1
 fi
 
