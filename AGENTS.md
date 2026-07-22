@@ -82,6 +82,7 @@ config/x-mode.env    generated X-mode watcher cadence; LOCAL, gitignored; source
 config/claude-foreman.env  optional crew GitHub App identity coordinates; LOCAL, gitignored; with config/claude-foreman.pem also present, crewmate/scout spawns into GitHub-origin projects mint per-task repo-scoped installation tokens so crewmates author commits and PRs as the app bot (docs/configuration.md, docs/examples/claude-foreman.env); not inherited into secondmate homes
 config/claude-foreman.pem  the crew-identity app's RS256 private key; LOCAL, gitignored, mode 600; never committed, copied into a repo, or printed
 config/claude-foreman.bot  cached crew-identity bot user id; LOCAL, gitignored; written by bin/fm-foreman-token.sh
+config/antigravity-accounts.json  antigravity (agy) Google-account rotation ORDER and current INDEX only, never a credential; LOCAL, gitignored; firstmate-maintained via bin/fm-antigravity-accounts.sh and human-editable. Per-account OAuth snapshots live at ~/.gemini/fm-antigravity-accounts/snapshots/ (mode 600), outside the repo (docs/antigravity-rotation.md, docs/examples/antigravity-accounts.json); not inherited into secondmate homes
 data/                personal fleet records; LOCAL, gitignored as a whole
   backlog.md         task queue, dependencies, history
   captain.md         captain's curated personal preferences and working style; LOCAL, gitignored, and canonical even if harness memory mirrors it
