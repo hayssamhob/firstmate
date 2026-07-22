@@ -62,14 +62,17 @@ agy_valid_json() {
 # email claim, so a captured snapshot is self-identifying and a swap can be
 # post-verified. Prints the email, or nothing on failure.
 agy_email_of_creds() {
-  local f=$1 payload
+  local f=$1 payload b64 decoded
   [ -f "$f" ] || return 1
   payload=$(jq -r '.id_token // empty' "$f" 2>/dev/null | cut -d. -f2) || return 1
   [ -n "$payload" ] || return 1
-  # base64url -> base64 with padding, then decode and read the email claim.
+  # base64url -> base64 with padding, then decode (GNU `-d`, BSD `-D`) and read
+  # the email claim.
   local pad=$(( (4 - ${#payload} % 4) % 4 ))
-  printf '%s%*s' "$payload" "$pad" '' | tr ' ' '=' | tr '_-' '/+' \
-    | base64 -D 2>/dev/null | jq -r '.email // empty' 2>/dev/null
+  b64=$(printf '%s%*s' "$payload" "$pad" '' | tr ' ' '=' | tr '_-' '/+')
+  decoded=$(printf '%s' "$b64" | base64 -d 2>/dev/null)
+  [ -n "$decoded" ] || decoded=$(printf '%s' "$b64" | base64 -D 2>/dev/null)
+  printf '%s' "$decoded" | jq -r '.email // empty' 2>/dev/null
 }
 
 # Current active email from google_accounts.json (authoritative record).
@@ -120,6 +123,11 @@ agy_backup_live() {
   oc="$(agy_oauth_creds)"; ga="$(agy_google_accounts)"
   [ -f "$oc" ] && { cp -p "$oc" "$dir/oauth_creds.json" || return 1; }
   [ -f "$ga" ] && { cp -p "$ga" "$dir/google_accounts.json" || return 1; }
+  # Retain at most the 20 newest backup dirs; pruning never fails the rotation.
+  # shellcheck disable=SC2012 # backup dir names are controlled timestamps, no special chars
+  { ls -1dt "$base"/*/ 2>/dev/null | tail -n +21 | while IFS= read -r old; do
+      [ -n "$old" ] && rm -rf "$old" 2>/dev/null || true
+    done; } 2>/dev/null || true
   printf '%s\n' "$dir"
 }
 

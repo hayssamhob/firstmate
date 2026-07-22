@@ -34,9 +34,11 @@ BACKEND=$(fm_backend_of_selector "$RAW_TARGET" "$T" "$STATE") || exit 0
 cap=$(fm_backend_capture "$BACKEND" "$T" "$N" 2>/dev/null || true)
 [ -n "$cap" ] || exit 0
 
-# Exhaustion signatures. "AI: Out of credits" is the confirmed footer; the others
-# are the common agy/Gemini credit/quota error phrasings. Case-insensitive.
-if printf '%s' "$cap" | grep -qiE 'out of credits|no (remaining )?credits|insufficient credits|credit balance (is )?(too low|exhausted)|quota (exceeded|exhausted)|RESOURCE_EXHAUSTED'; then
+# Exhaustion signature: only the verified antigravity footer "AI: Out of credits"
+# (case-insensitive). Broader credit/quota phrasings are deliberately not matched
+# because they can appear in ordinary crew output (test logs, an API error being
+# debugged, a comment) and would trigger a false, disruptive account rotation.
+if printf '%s' "$cap" | grep -qiF 'AI: Out of credits'; then
   echo "antigravity-out-of-credits $RAW_TARGET"
 fi
 exit 0
