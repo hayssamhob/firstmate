@@ -281,12 +281,12 @@ Supervision (detect -> rotate -> resume): for an antigravity crew across a rotat
 printf '#!/usr/bin/env bash\nexec %s/bin/fm-antigravity-credit-check.sh fm-<id>\n' "$FM_HOME" > state/<id>.check.sh
 chmod +x state/<id>.check.sh
 ```
-The poll greps the pane for `AI: Out of credits` (and common credit/quota errors) and prints an `antigravity-out-of-credits <window>` wake line only when the account is dry.
+The poll greps the pane for the verified `AI: Out of credits` footer only (broader credit/quota phrasings are deliberately not matched - they appear in ordinary crew output and would cause false rotations of the captain's live auth) and prints an `antigravity-out-of-credits <window>` wake line only when the account is dry.
 On that `check:` wake, rotate and resume in one command:
 ```sh
 bin/fm-antigravity-rotate.sh next --relaunch fm-<id>
 ```
-`next` round-robins to the next pool account that has a snapshot; `--relaunch` sends `agy --continue` to resume the stalled turn on the fresh account. `to <email>` targets a specific account; `--verify` runs one `agy -p` to confirm the new account authenticates.
+`next` round-robins to the next pool account that has a snapshot. `--relaunch` resumes the stalled turn on the fresh account by exiting the still-running agy (Ctrl+D twice, dropping the pane back to a shell) and relaunching it there with the task's autonomy flags plus `--continue` so agy re-reads the swapped creds; firstmate may add `--model <id>` to preserve the model tier, since a bare `--continue` resumes on the account's default model. Sending `agy --continue` as text would only be typed into the stalled agy's composer as a chat message, not relaunch it. `to <email>` targets a specific account; `--verify` runs one `agy -p` to confirm the new account authenticates.
 
 Safety (every mutation): `bin/fm-antigravity-rotate.sh` backs up `oauth_creds.json` + `google_accounts.json` first, re-snapshots the outgoing account, writes atomically, validates JSON throughout, restores from backup on any write failure, serializes under a lock, and refuses on any inconsistency rather than risking the captain's live auth.
 The swap mechanism was proven non-corrupting empirically (scratch-dir round-robin plus a live capture that left `~/.gemini` byte-identical).

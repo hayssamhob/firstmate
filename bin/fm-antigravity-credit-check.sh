@@ -1,7 +1,9 @@
 #!/usr/bin/env bash
 # Detect antigravity (agy) credit exhaustion on a crew window, for use as a
 # per-task slow poll (state/<id>.check.sh). Antigravity signals an exhausted
-# account with an "AI: Out of credits" footer and/or a credit/quota error mid-turn.
+# account with an "AI: Out of credits" footer; this poll matches ONLY that
+# verified footer (broader credit/quota phrasings are deliberately not matched
+# because they appear in ordinary crew output and would cause false rotations).
 # When firstmate runs an antigravity crew across a rotation pool, arm this as the
 # task's check so the watcher surfaces a `check:` wake the moment the active
 # account runs dry; on that wake firstmate rotates and resumes:

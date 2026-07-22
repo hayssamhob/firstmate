@@ -13,8 +13,12 @@
 #   to <email>  rotate to a specific captured account
 #   --verify    after swapping, run `agy -p` once to confirm the new account
 #               authenticates (consumes one small request)
-#   --relaunch <window>  after a successful swap, send `agy --continue` to the
-#               crew's backend window to resume the stalled turn
+#   --relaunch <window>  after a successful swap, resume the stalled crew by
+#               exiting the still-running agy (Ctrl+D twice) so the pane returns
+#               to a shell, then relaunching agy there with the task's autonomy
+#               flags plus --continue so it re-reads the new creds. (Sending
+#               `agy --continue` as text would just be typed into the stalled
+#               agy's composer as a chat message, not relaunch it.)
 #
 # SAFETY: backs up oauth_creds.json + google_accounts.json before any write,
 # re-snapshots the outgoing account so its latest tokens are never lost, writes
@@ -39,7 +43,7 @@ while [ "$#" -gt 0 ]; do
     --verify) VERIFY=1 ;;
     --relaunch) shift; RELAUNCH_WINDOW=${1:-}; [ -n "$RELAUNCH_WINDOW" ] || { echo "error: --relaunch needs a window" >&2; exit 1; } ;;
     --relaunch=*) RELAUNCH_WINDOW=${1#--relaunch=} ;;
-    -h|--help|help) sed -n '2,22p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help|help) sed -n '2,26p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
     *) args+=("$1") ;;
   esac
   shift
@@ -172,12 +176,30 @@ if [ "$VERIFY" = 1 ]; then
 fi
 
 # 7. Optional resume of the stalled crew.
+#    The out-of-credits footer fires while agy's interactive TUI is still up, so
+#    the crew pane sits at agy's composer, NOT a shell prompt. A single fm-send
+#    text line would type into that composer and be submitted as a CHAT MESSAGE
+#    to the stalled (still-old-account) session - it would never relaunch agy on
+#    the freshly swapped creds. So resume is exit-then-relaunch: quit agy (Ctrl+D
+#    twice) to drop the pane back to a shell prompt, then launch a fresh agy
+#    there so it re-reads the new oauth_creds.json and resumes with --continue.
+#    Fully best-effort: a failed send warns but never aborts the completed swap.
 if [ -n "$RELAUNCH_WINDOW" ]; then
   if [ -x "$SCRIPT_DIR/fm-send.sh" ]; then
-    "$SCRIPT_DIR/fm-send.sh" "$RELAUNCH_WINDOW" 'agy --continue' \
-      && echo "relaunch: sent 'agy --continue' to $RELAUNCH_WINDOW" \
-      || echo "warning: could not send resume to $RELAUNCH_WINDOW" >&2
+    # agy's verified exit is Ctrl+D pressed twice (first press arms the confirm).
+    "$SCRIPT_DIR/fm-send.sh" "$RELAUNCH_WINDOW" --key C-d 2>/dev/null || true
+    sleep 0.5
+    "$SCRIPT_DIR/fm-send.sh" "$RELAUNCH_WINDOW" --key C-d 2>/dev/null || true
+    sleep 1.5
+    # Relaunch at the now-shell prompt with the task's autonomy flags preserved.
+    # A bare --continue resumes on the account's default model; firstmate may add
+    # --model <id> to hold the tier, but the base autonomy resume is enough here.
+    if "$SCRIPT_DIR/fm-send.sh" "$RELAUNCH_WINDOW" 'agy --dangerously-skip-permissions --mode accept-edits --continue'; then
+      echo "relaunch: exited stalled agy and relaunched on $TARGET at $RELAUNCH_WINDOW"
+    else
+      echo "warning: could not relaunch agy at $RELAUNCH_WINDOW; resume it manually (exit with Ctrl+D twice, then 'agy --dangerously-skip-permissions --mode accept-edits --continue')" >&2
+    fi
   else
-    echo "warning: fm-send.sh not found; resume the crew manually with 'agy --continue'" >&2
+    echo "warning: fm-send.sh not found; resume the crew manually (exit agy with Ctrl+D twice, then 'agy --dangerously-skip-permissions --mode accept-edits --continue')" >&2
   fi
 fi

@@ -57,7 +57,7 @@ printf '#!/usr/bin/env bash\nexec %s/bin/fm-antigravity-credit-check.sh fm-<id>\
 chmod +x state/<id>.check.sh
 ```
 
-The poll greps the crew's pane for `AI: Out of credits` (and common credit/quota errors) and prints an `antigravity-out-of-credits <window>` wake line only when the account is dry.
+The poll greps the crew's pane for the verified `AI: Out of credits` footer only (broader credit/quota phrasings are deliberately not matched, since they appear in ordinary crew output and would cause false rotations) and prints an `antigravity-out-of-credits <window>` wake line only when the account is dry.
 On that `check:` wake, firstmate rotates and resumes in one command:
 
 ```sh
@@ -65,7 +65,7 @@ bin/fm-antigravity-rotate.sh next --relaunch fm-<id>
 ```
 
 - `next` round-robins to the next pool account that has a snapshot.
-- `--relaunch fm-<id>` sends `agy --continue` to the crew's window to resume the stalled turn on the fresh account.
+- `--relaunch fm-<id>` resumes the stalled turn on the fresh account by exiting the still-running agy (Ctrl+D twice, so the pane drops back to a shell) and relaunching it there with the task's autonomy flags plus `--continue`, so agy re-reads the swapped creds. Typing `agy --continue` as a message into the still-running agy would just chat with the stalled old-account session, not relaunch it. firstmate may add `--model <id>` to preserve the model tier, since a bare `--continue` resumes on the account's default model.
 - `to <email>` targets a specific account instead of round-robin.
 - `--verify` runs one small `agy -p` request afterward to confirm the new account authenticates.
 
