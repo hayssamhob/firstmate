@@ -1,6 +1,6 @@
 ---
 name: harness-adapters
-description: Agent-only reference for firstmate harness operations. Use before spawning or recovering a crewmate or secondmate, handling a trust dialog, sending a harness-specific skill invocation, interrupting or exiting an agent, resuming an exited agent, or verifying a new harness adapter. Contains verified facts for claude, codex, opencode, pi, grok, and devin.
+description: Agent-only reference for firstmate harness operations. Use before spawning or recovering a crewmate or secondmate, handling a trust dialog, sending a harness-specific skill invocation, interrupting or exiting an agent, resuming an exited agent, or verifying a new harness adapter. Contains verified facts for claude, codex, opencode, pi, grok, devin, and antigravity.
 user-invocable: false
 ---
 
@@ -55,6 +55,7 @@ The supported launch-profile flags below were verified locally on 2026-06-30 wit
 | grok | `--model <model>` | `--reasoning-effort <low\|medium\|high\|xhigh>` | Verified on grok 0.2.73. `--effort` parses too, but firstmate's profile axis is reasoning effort. `--reasoning-effort max` is rejected, so `max` is omitted. |
 | pi | `--model <model>` | `--thinking <low\|medium\|high\|xhigh>` | Verified on pi 0.80.2. `max` prints an invalid-thinking warning, so firstmate omits Pi effort when the requested effort is `max`. |
 | opencode | `--model <provider/model>` | none for firstmate's interactive launch | Verified on opencode 1.17.6. `opencode run` has `--variant`, but firstmate launches the interactive `opencode --prompt` path, which has no verified effort flag. |
+| antigravity | `--model <id>` (id from `agy models`) | none for firstmate's launch | Verified on agy 1.1.5. Effort is baked into the gemini model-id suffix (`gemini-3.6-flash-high/medium/low`), which conflicts with a standalone `--effort`; claude ids reject `--effort`. So firstmate expresses antigravity effort by choosing the model id, not `--effort` (model-only, like opencode). Default id is `gemini-3.6-flash-high`; a base id like `gemini-3.6-flash` silently falls back to the account default in interactive mode, so always use a suffixed/exact id from `agy models`. |
 
 When a requested effort value is outside the harness-specific accepted set, `fm-spawn` records the requested `effort=` in meta but emits no effort flag for that harness.
 This preserves launch success instead of passing a known-bad value.
@@ -70,6 +71,7 @@ Natural language is acceptable if uncertain.
 - opencode: no separate verified skill invocation beyond normal slash-command behavior; use natural language if the exact skill command is uncertain.
 - pi: no separate verified skill invocation beyond normal command behavior; use natural language if the exact skill command is uncertain.
 - grok: `/<skill>`, for example `/no-mistakes` (same form as claude). Verified end to end: grok discovers the user-level `no-mistakes` skill, `/no-mistakes` invokes it, and grok drives a real `no-mistakes axi run`. Like codex's `$`/`/` popups, typing `/<skill>` opens grok's slash-autocomplete, so a too-fast Enter selects the popup entry instead of sending; `fm_tmux_submit_core`'s retried Enter (used by `fm-send`) lands it.
+- antigravity: no verified firstmate-skill slash form. agy is a Google CLI with its own skills surface, not firstmate's user-level skills, so trigger validation in natural language and let the crewmate run the pipeline as a shell command, e.g. "run the no-mistakes validation pipeline now: `no-mistakes axi run --intent '<...>'`". agy runs bash autonomously under `--dangerously-skip-permissions`, so the CLI drives fine even though the `/no-mistakes` slash is unavailable.
 
 ## claude (VERIFIED)
 
@@ -227,3 +229,65 @@ Resume after exit with `devin --resume <session-id>` or `devin --continue` (most
 The launch command uses `--prompt-file <brief>` (non-interactive initial prompt) with `--permission-mode dangerous` (auto-approve all tools, the devin equivalent of claude's `--dangerously-skip-permissions`).
 
 Devin has no known env marker for harness detection; `fm-harness.sh` detects it via process ancestry (command name contains `devin`).
+
+## antigravity (VERIFIED 2026-07-22, agy 1.1.5)
+
+Google's Antigravity agent CLI, driven via the `agy` binary (a `free-antigravity`/`antigravity` wrapper also exists but adds only CUSTOM models - currently none configured - so firstmate drives `agy` directly for Antigravity's built-in models).
+Launch (interactive, the shape firstmate supervises): `agy --dangerously-skip-permissions --mode accept-edits --model <id> --prompt-interactive "$(cat <brief>)"`.
+
+| Fact | Value |
+|---|---|
+| Busy-pane signature | `esc to cancel` (mid-turn footer, alongside a "Working.../Prioritizing Tool Usage..." braille spinner). Idle footer: `? for shortcuts`; composer `> `. Covered by the shared `esc (to )?(interrupt|cancel)` busy regex in `fm-watch.sh` and `fm-tmux-lib.sh`. |
+| Exit command | `Ctrl+D` twice (first press shows "press ctrl+d again to exit"). |
+| Interrupt | single `Esc` (cancels the running turn; footer returns from `esc to cancel` to `? for shortcuts`). `Ctrl+C` = go back / dismiss. |
+| Skill invocation | none for firstmate skills; trigger no-mistakes in natural language (see above). |
+| Autonomy | `--dangerously-skip-permissions` (auto-approves every tool - verified: runs unattended, executes file edits without prompting) plus `--mode accept-edits` (auto-applies edits). |
+| Env marker | none; detected via process ancestry (`agy` comm, or `antigravity`). |
+| Resume | `agy --continue` (most recent) or `agy --conversation <id>` (id printed on exit). |
+
+`-i` is the alias for `--prompt-interactive`; `-p`/`--print`/`--prompt` is a one-shot non-interactive run (NOT what a supervised pane uses).
+
+Trust dialog on first run per project: "Do you trust the contents of this project?" with "Yes, I trust this folder" pre-selected.
+Accept with `bin/fm-send.sh <window> --key Enter`; peek within about 20 seconds of spawn, like codex/pi.
+The decision persists per folder in `~/.gemini/trustedFolders.json`.
+
+Model priority (captain requirement): the default crewmate model is Gemini 3.6 Flash (`gemini-3.6-flash-high`), the fast/cheap workhorse, wired as `ANTIGRAVITY_DEFAULT_MODEL` in `fm-spawn.sh`.
+Escalate a harder task to Claude Opus 4.6 (Thinking) per-task with `--model claude-opus-4-6-thinking` (a captain "run this on opus" override, or a `config/crew-dispatch.json` rule whose `use.harness` is `antigravity` and `use.model` is `claude-opus-4-6-thinking`).
+Use exact ids from `agy models` (e.g. `gemini-3.6-flash-high`, `gemini-3.1-pro-high`, `claude-opus-4-6-thinking`).
+A BASE gemini id like `gemini-3.6-flash` silently falls back to the account's persisted default model in interactive mode (verified), so never rely on a base id.
+
+Turn-end: agy has NO Claude/devin-compatible `Stop` hook and no `.claude`/`.devin`/`.grok` hook surface it reads, so firstmate installs no turn-end file and relies on the watcher's stale-pane detection for turn boundaries (the `antigravity*)` no-op in `fm-spawn.sh`). Do NOT fabricate a hook.
+
+Merge safety: agy exposes no verified `PreToolUse` hook, so there is no per-command merge-deny guard like devin's. Crewmates are kept off merges by the brief contract (never push to the default branch, never merge - that is firstmate's call) plus firstmate owning the only sanctioned merge path (`bin/fm-pr-merge.sh`/`bin/fm-merge-local.sh`). When the Claude Foreman crew identity is configured, the post-spawn identity check still applies.
+
+Quirk: a PATHLESS file write ("create a file X") defaults to agy's scratch dir (`~/.gemini/antigravity-cli/...`); given an EXPLICIT/absolute path inside the workspace it edits the REAL file correctly (verified). firstmate briefs already reference explicit paths, so this is fine - but keep brief file references explicit.
+
+### Account rotation (out-of-credits auto-switch)
+
+The captain rolls several Google accounts and switches when one runs out of credits.
+Antigravity keeps only the CURRENTLY-active account's OAuth tokens on disk (one plaintext `~/.gemini/oauth_creds.json`; no per-account store, no `agy` account-switch subcommand), with `~/.gemini/google_accounts.json` = `{"active":"<email>","old":[...]}` whose `.active` mirrors the account in `oauth_creds.json`.
+So switching the account agy authenticates as means REPLACING `oauth_creds.json` with the target account's tokens and setting `.active` to match - and because only the active account's tokens exist on disk, firstmate must SNAPSHOT each account once (while it is active) before it can rotate to it.
+
+Setup (captain, one-time per account; interactive Google login is captain-only - firstmate cannot do it):
+1. In antigravity, log into an account (or confirm the active one).
+2. Run `bin/fm-antigravity-accounts.sh capture` to snapshot the active account into the pool.
+3. Repeat for each of the 5-6 accounts.
+4. Optionally fix the round-robin order with `bin/fm-antigravity-accounts.sh set-rotation <email>...`; inspect with `list`/`status`.
+
+Snapshots (which hold live refresh tokens) live at `~/.gemini/fm-antigravity-accounts/snapshots/`, mode 600, NEVER in the firstmate repo. The repo's `config/antigravity-accounts.json` (gitignored) holds only the rotation order + index - never a token.
+
+Supervision (detect -> rotate -> resume): for an antigravity crew across a rotation pool, arm the credit poll as the task's check so the watcher surfaces the exhaustion the moment it happens:
+```sh
+printf '#!/usr/bin/env bash\nexec %s/bin/fm-antigravity-credit-check.sh fm-<id>\n' "$FM_HOME" > state/<id>.check.sh
+chmod +x state/<id>.check.sh
+```
+The poll greps the pane for the verified `AI: Out of credits` footer only (broader credit/quota phrasings are deliberately not matched - they appear in ordinary crew output and would cause false rotations of the captain's live auth) and prints an `antigravity-out-of-credits <window>` wake line only when the account is dry.
+On that `check:` wake, rotate and resume in one command:
+```sh
+bin/fm-antigravity-rotate.sh next --relaunch fm-<id>
+```
+`next` round-robins to the next pool account that has a snapshot. `--relaunch` resumes the stalled turn on the fresh account by exiting the still-running agy (Ctrl+D twice, dropping the pane back to a shell) and relaunching it there with the task's autonomy flags plus `--continue` so agy re-reads the swapped creds; firstmate may add `--model <id>` to preserve the model tier, since a bare `--continue` resumes on the account's default model. Sending `agy --continue` as text would only be typed into the stalled agy's composer as a chat message, not relaunch it. `to <email>` targets a specific account; `--verify` runs one `agy -p` to confirm the new account authenticates.
+
+Safety (every mutation): `bin/fm-antigravity-rotate.sh` backs up `oauth_creds.json` + `google_accounts.json` first, re-snapshots the outgoing account, writes atomically, validates JSON throughout, restores from backup atomically (temp + validate + `mv`, like the write path) on any write failure while preserving the intact backup if a restore fails, serializes under a lock, and refuses on any inconsistency rather than risking the captain's live auth.
+The swap mechanism was proven non-corrupting empirically (scratch-dir round-robin plus a live capture that left `~/.gemini` byte-identical).
+NOT auto-provable without a second logged-in account: whether a restored snapshot re-authenticates cleanly and how long a stored refresh token stays valid - confirm on the first real rotation after the captain captures a second account; if a rotation ever fails auth, capture that account again (its tokens went stale).

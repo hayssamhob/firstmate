@@ -82,6 +82,7 @@ config/x-mode.env    generated X-mode watcher cadence; LOCAL, gitignored; source
 config/claude-foreman.env  optional crew GitHub App identity coordinates; LOCAL, gitignored; with config/claude-foreman.pem also present, crewmate/scout spawns into GitHub-origin projects mint per-task repo-scoped installation tokens so crewmates author commits and PRs as the app bot (docs/configuration.md, docs/examples/claude-foreman.env); not inherited into secondmate homes
 config/claude-foreman.pem  the crew-identity app's RS256 private key; LOCAL, gitignored, mode 600; never committed, copied into a repo, or printed
 config/claude-foreman.bot  cached crew-identity bot user id; LOCAL, gitignored; written by bin/fm-foreman-token.sh
+config/antigravity-accounts.json  antigravity (agy) Google-account rotation ORDER and current INDEX only, never a credential; LOCAL, gitignored; firstmate-maintained via bin/fm-antigravity-accounts.sh and human-editable. Per-account OAuth snapshots live at ~/.gemini/fm-antigravity-accounts/snapshots/ (mode 600), outside the repo (docs/antigravity-rotation.md, docs/examples/antigravity-accounts.json); not inherited into secondmate homes
 data/                personal fleet records; LOCAL, gitignored as a whole
   backlog.md         task queue, dependencies, history
   captain.md         captain's curated personal preferences and working style; LOCAL, gitignored, and canonical even if harness memory mirrors it
@@ -184,7 +185,7 @@ If the captain expresses a standing dispatch preference such as "use grok for ne
 Crewmates default to the same harness you are running on.
 The captain may override the static default at any time, typically at bootstrap: record the choice in `config/crew-harness` (a single adapter name; absent or `default` means mirror your own harness).
 Resolve `default` with `bin/fm-harness.sh`; resolve the active static crewmate harness with `bin/fm-harness.sh crew`.
-Verified adapter names are `claude`, `codex`, `opencode`, `pi`, `grok`, and `devin`.
+Verified adapter names are `claude`, `codex`, `opencode`, `pi`, `grok`, `devin`, and `antigravity`.
 
 ### Crew dispatch profiles
 
@@ -247,6 +248,7 @@ The verified profile axes are:
 - `pi`: model via `--model <name>`, effort via `--thinking <low|medium|high|xhigh>`; `max` is not passed because the installed Pi CLI warns that it is invalid.
 - `opencode`: model via `--model <provider/model>`; no verified effort flag for firstmate's interactive `opencode --prompt` launch, so effort is not passed.
 - `devin`: model via `--model <name>`; no verified reasoning-effort flag, so effort is not passed.
+- `antigravity`: model via `--model <id>` (exact ids from `agy models`); effort is the model-id suffix (`gemini-3.6-flash-high|medium|low`), which conflicts with a standalone effort flag, so no separate effort flag is passed (model-only, like opencode). The default crewmate model is Gemini 3.6 Flash (`gemini-3.6-flash-high`); escalation is per-task `--model claude-opus-4-6-thinking`. Account rotation across the captain's Google accounts (snapshot/capture, out-of-credits detection, safe swap) is handled by `bin/fm-antigravity-accounts.sh`, `bin/fm-antigravity-rotate.sh`, and `bin/fm-antigravity-credit-check.sh`; see the `harness-adapters` skill and `docs/antigravity-rotation.md`.
 
 If the selected profile asks for an effort value the selected harness does not accept, `fm-spawn` records the requested `effort=` in meta for traceability but omits the launch flag so the harness starts successfully.
 Bootstrap reports this as a `CREW_DISPATCH` diagnostic when it can see the invalid harness/effort pair in `config/crew-dispatch.json`.

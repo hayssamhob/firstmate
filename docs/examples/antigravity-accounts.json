@@ -1,0 +1,9 @@
+{
+  "_comment": "Example config/antigravity-accounts.json (LOCAL, gitignored). Holds only the antigravity Google-account rotation ORDER and the current INDEX - never a credential. Snapshots of each account's OAuth tokens live at ~/.gemini/fm-antigravity-accounts/snapshots/ (mode 600), not here. firstmate maintains this file via bin/fm-antigravity-accounts.sh (capture / set-rotation); you may also hand-edit the order. See docs/antigravity-rotation.md.",
+  "rotation": [
+    "you@gmail.com",
+    "you+work@gmail.com",
+    "you+alt@gmail.com"
+  ],
+  "index": 0
+}

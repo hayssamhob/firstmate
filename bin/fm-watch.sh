@@ -103,10 +103,13 @@ SIGNAL_GRACE=${FM_SIGNAL_GRACE:-30}   # seconds to linger after a signal so trai
                                       # turn-end hook) coalesce into one wake
 # Busy signatures per harness, OR-ed. Extend via env when new adapters are verified.
 # claude/codex: "esc to interrupt"; opencode: "esc interrupt"; pi: "Working...";
+# antigravity (agy): "esc to cancel" (mid-turn footer hint, alongside a
+# "Working.../Prioritizing Tool Usage..." braille spinner; idle footer is
+# "? for shortcuts") - covered by the shared "esc (to )?(interrupt|cancel)" branch.
 # grok: "Ctrl+c:cancel" (the mid-turn cancel hint in grok's keybind bar, shown iff a
 # turn is running; absent when idle - verified grok 0.2.73, ASCII to avoid the
 # locale fragility of matching grok's braille spinner glyph directly).
-BUSY_REGEX=${FM_BUSY_REGEX:-'esc (to )?interrupt|Working\.\.\.|Ctrl\+c:cancel'}
+BUSY_REGEX=${FM_BUSY_REGEX:-'esc (to )?(interrupt|cancel)|Working\.\.\.|Ctrl\+c:cancel'}
 # Always-on wake triage: most wakes during a long crew validation are benign (a
 # working: note or turn-end while a pipeline runs, a no-change heartbeat). Rather
 # than wake firstmate's LLM for each, this watcher classifies every wake in bash

@@ -35,9 +35,11 @@
 # returns) so they can be sourced into either context.
 
 # Busy footers per harness (mirror fm-watch.sh). claude/codex: "esc to
-# interrupt"; opencode: "esc interrupt"; pi: "Working..."; grok: "Ctrl+c:cancel"
+# interrupt"; opencode: "esc interrupt"; pi: "Working..."; antigravity (agy):
+# "esc to cancel" (mid-turn footer, idle is "? for shortcuts") - covered by the
+# shared "esc (to )?(interrupt|cancel)" branch; grok: "Ctrl+c:cancel"
 # (grok's mid-turn cancel hint, shown iff a turn is running - verified grok 0.2.73).
-FM_TMUX_BUSY_REGEX_DEFAULT='esc (to )?interrupt|Working\.\.\.|Ctrl\+c:cancel'
+FM_TMUX_BUSY_REGEX_DEFAULT='esc (to )?(interrupt|cancel)|Working\.\.\.|Ctrl\+c:cancel'
 
 # Composer placeholder text per harness (idle composer). claude's ghost text
 # uses SGR 2 (dim/faint) and is caught by fm_tmux_strip_ghost. devin renders its

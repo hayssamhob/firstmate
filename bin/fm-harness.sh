@@ -48,6 +48,12 @@ detect_own() {
       *opencode*) echo opencode; return ;;
       *grok*) echo grok; return ;;
       *devin*) echo devin; return ;;
+      # antigravity (Google's Antigravity agent CLI) is the compiled `agy` binary
+      # (an `antigravity` wrapper also exists). It exposes no verified child env
+      # marker, so detection is process-ancestry only: match the exact `agy` comm
+      # or an antigravity-named command. `agy` is matched exactly (not *agy*) to
+      # avoid catching unrelated names like "legacy".
+      agy|*antigravity*) echo antigravity; return ;;
       pi) echo pi; return ;;
       node*|python*)
         # Bare interpreter: match the harness name in its script path.
@@ -58,6 +64,7 @@ detect_own() {
           *opencode*) echo opencode; return ;;
           *grok*) echo grok; return ;;
           *devin*) echo devin; return ;;
+          *antigravity*|*/agy|*" agy "*) echo antigravity; return ;;
           *" pi "*|*/pi) echo pi; return ;;
         esac ;;
     esac
